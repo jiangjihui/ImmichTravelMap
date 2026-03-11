@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchTravelPoints, getApiBase } from "./api";
-import { MapView } from "./MapView";
+import { MapView, type FollowPreset } from "./MapView";
 import { TravelPoint, TravelResponse } from "./types";
 
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
@@ -29,6 +29,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [followCurrent, setFollowCurrent] = useState(true);
+  const [followPreset, setFollowPreset] = useState<FollowPreset>("cinematic");
 
   const minTime = points.length > 0 ? new Date(points[0].timestamp).getTime() : 0;
   const maxTime = points.length > 0 ? new Date(points[points.length - 1].timestamp).getTime() : 0;
@@ -107,7 +108,13 @@ export default function App() {
       </header>
 
       <main className="map-shell">
-        <MapView points={points} activeTime={activeTime} followCurrent={followCurrent} apiBase={getApiBase()} />
+        <MapView
+          points={points}
+          activeTime={activeTime}
+          followCurrent={followCurrent}
+          followPreset={followPreset}
+          apiBase={getApiBase()}
+        />
       </main>
 
       <section className="timeline-panel">
@@ -128,6 +135,14 @@ export default function App() {
                   {item}x
                 </option>
               ))}
+            </select>
+          </label>
+
+          <label className="inline">
+            跟随模式
+            <select value={followPreset} onChange={(event) => setFollowPreset(event.target.value as FollowPreset)}>
+              <option value="cinematic">电影感</option>
+              <option value="extreme">极限紧跟</option>
             </select>
           </label>
 

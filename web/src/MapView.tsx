@@ -12,6 +12,37 @@ type MapViewProps = {
   activeTime: number;
   followCurrent: boolean;
   apiBase: string;
+  followPreset: FollowPreset;
+};
+
+export type FollowPreset = "cinematic" | "extreme";
+
+type FollowPresetConfig = {
+  windowSize: number;
+  padding: { top: number; right: number; bottom: number; left: number };
+  maxZoom: number;
+  minZoom: number;
+  duration: number;
+  easing: (t: number) => number;
+};
+
+const FOLLOW_PRESETS: Record<FollowPreset, FollowPresetConfig> = {
+  cinematic: {
+    windowSize: 8,
+    padding: { top: 112, right: 112, bottom: 156, left: 112 },
+    maxZoom: 5.8,
+    minZoom: 2.4,
+    duration: 980,
+    easing: (t) => 1 - Math.pow(1 - t, 3)
+  },
+  extreme: {
+    windowSize: 3,
+    padding: { top: 52, right: 52, bottom: 76, left: 52 },
+    maxZoom: 9.2,
+    minZoom: 3.6,
+    duration: 580,
+    easing: (t) => t * t * (3 - 2 * t)
+  }
 };
 
 function buildLocationLabel(point: TravelPoint): string {
@@ -22,7 +53,8 @@ function toThumbnailUrl(apiBase: string, point: TravelPoint): string {
   return apiBase ? `${apiBase}${point.thumbnailPath}` : point.thumbnailPath;
 }
 
-export function MapView({ points, activeTime, followCurrent, apiBase }: MapViewProps) {
+export function MapView({ points, activeTime, followCurrent, apiBase, followPreset }: MapViewProps) {
+  const followConfig = FOLLOW_PRESETS[followPreset];
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreGL.Map | null>(null);
   const popupRef = useRef<MapLibreGL.Popup | null>(null);
@@ -264,14 +296,31 @@ export function MapView({ points, activeTime, followCurrent, apiBase }: MapViewP
     });
 
     if (followCurrent && current && lastCenteredAssetRef.current !== current.assetId) {
+      const recentPoints = visible.slice(Math.max(0, visible.length - followConfig.windowSize));
+      const recentBounds = new maplibregl.LngLatBounds(
+        [current.longitude, current.latitude],
+        [current.longitude, current.latitude]
+      );
+      for (const point of recentPoints) {
+        recentBounds.extend([point.longitude, point.latitude]);
+      }
+
+      const targetCamera = map.cameraForBounds(recentBounds, {
+        padding: followConfig.padding,
+        maxZoom: followConfig.maxZoom
+      });
+      const targetZoom =
+        targetCamera?.zoom ?? Math.max(followConfig.minZoom, Math.min(followConfig.maxZoom, map.getZoom()));
+
       map.easeTo({
         center: [current.longitude, current.latitude],
-        duration: 450,
-        zoom: Math.max(map.getZoom(), 5)
+        zoom: Math.max(followConfig.minZoom, Math.min(followConfig.maxZoom, targetZoom)),
+        duration: followConfig.duration,
+        easing: followConfig.easing
       });
       lastCenteredAssetRef.current = current.assetId;
     }
-  }, [activeTime, apiBase, followCurrent, points]);
+  }, [activeTime, apiBase, followConfig, followCurrent, points]);
 
   return <div ref={containerRef} className="map-container" />;
 }
