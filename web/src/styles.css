@@ -141,6 +141,10 @@ button:disabled {
   font-size: 13px;
 }
 
+.inline-range {
+  width: 140px;
+}
+
 .checkbox input {
   margin: 0;
 }

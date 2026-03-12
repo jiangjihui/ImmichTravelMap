@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchTravelPoints, getApiBase } from "./api";
-import { MapView, type FollowPreset } from "./MapView";
+import { MapView } from "./MapView";
 import { TravelPoint, TravelResponse } from "./types";
 
 const PLAYBACK_SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
+const POINT_BASE_INTERVAL_MS = 160;
+
+type PlaybackMode = "time" | "point";
 
 function toDateTimeLocalValue(date: Date): string {
   const offset = date.getTimezoneOffset();
@@ -13,6 +16,27 @@ function toDateTimeLocalValue(date: Date): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function findPointIndexAtOrBeforeTime(points: TravelPoint[], targetTime: number): number {
+  if (points.length === 0) {
+    return 0;
+  }
+
+  let left = 0;
+  let right = points.length - 1;
+  let answer = 0;
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    const midTime = new Date(points[mid].timestamp).getTime();
+    if (midTime <= targetTime) {
+      answer = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  return answer;
 }
 
 export default function App() {
@@ -29,7 +53,10 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [followCurrent, setFollowCurrent] = useState(true);
-  const [followPreset, setFollowPreset] = useState<FollowPreset>("cinematic");
+  const [followIntensity, setFollowIntensity] = useState(72);
+  const [ultraAggressiveFollow, setUltraAggressiveFollow] = useState(false);
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("time");
+  const [playheadIndex, setPlayheadIndex] = useState(0);
 
   const minTime = points.length > 0 ? new Date(points[0].timestamp).getTime() : 0;
   const maxTime = points.length > 0 ? new Date(points[points.length - 1].timestamp).getTime() : 0;
@@ -46,6 +73,7 @@ export default function App() {
       setSummary(data.summary);
       if (data.points.length > 0) {
         setActiveTime(new Date(data.points[0].timestamp).getTime());
+        setPlayheadIndex(0);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -63,14 +91,39 @@ export default function App() {
       return;
     }
 
-    const span = Math.max(1000, maxTime - minTime);
-    const step = (span / 400) * speed;
-    const timer = window.setInterval(() => {
-      setActiveTime((prev) => clamp(prev + step, minTime, maxTime));
-    }, 50);
+    if (playbackMode === "time") {
+      const span = Math.max(1000, maxTime - minTime);
+      const step = (span / 400) * speed;
+      const timer = window.setInterval(() => {
+        setActiveTime((prev) => clamp(prev + step, minTime, maxTime));
+      }, 50);
+      return () => window.clearInterval(timer);
+    }
 
+    const intervalMs = Math.max(24, Math.round(POINT_BASE_INTERVAL_MS / speed));
+    const timer = window.setInterval(() => {
+      setPlayheadIndex((prev) => {
+        const next = Math.min(prev + 1, points.length - 1);
+        setActiveTime(new Date(points[next].timestamp).getTime());
+        return next;
+      });
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [isPlaying, maxTime, minTime, points.length, speed]);
+  }, [isPlaying, maxTime, minTime, playbackMode, points, speed]);
+
+  useEffect(() => {
+    if (points.length === 0) {
+      return;
+    }
+
+    if (playbackMode === "point") {
+      setPlayheadIndex(findPointIndexAtOrBeforeTime(points, activeTime));
+      return;
+    }
+
+    const safeIndex = clamp(playheadIndex, 0, points.length - 1);
+    setActiveTime(new Date(points[safeIndex].timestamp).getTime());
+  }, [playbackMode, points]);
 
   useEffect(() => {
     if (isPlaying && activeTime >= maxTime) {
@@ -89,19 +142,20 @@ export default function App() {
           <p>拖动时间轴，按时间重现你的旅行轨迹。</p>
         </div>
         <div className="filters">
-          <label>
+          <label title="设置轨迹查询的开始时间">
             起始时间
-            <input
-              type="datetime-local"
-              value={startInput}
-              onChange={(event) => setStartInput(event.target.value)}
-            />
+            <input type="datetime-local" value={startInput} onChange={(event) => setStartInput(event.target.value)} />
           </label>
-          <label>
+          <label title="设置轨迹查询的结束时间">
             结束时间
             <input type="datetime-local" value={endInput} onChange={(event) => setEndInput(event.target.value)} />
           </label>
-          <button className="primary" onClick={() => void loadPoints()} disabled={loading}>
+          <button
+            className="primary"
+            onClick={() => void loadPoints()}
+            disabled={loading}
+            title="按当前起止时间重新加载轨迹"
+          >
             {loading ? "加载中..." : "加载轨迹"}
           </button>
         </div>
@@ -112,7 +166,8 @@ export default function App() {
           points={points}
           activeTime={activeTime}
           followCurrent={followCurrent}
-          followPreset={followPreset}
+          followIntensity={followIntensity}
+          ultraAggressiveFollow={ultraAggressiveFollow}
           apiBase={getApiBase()}
         />
       </main>
@@ -123,13 +178,18 @@ export default function App() {
             className="secondary"
             onClick={() => setIsPlaying((prev) => !prev)}
             disabled={points.length < 2 || loading}
+            title="播放或暂停轨迹动画"
           >
             {isPlaying ? "暂停" : "播放"}
           </button>
 
-          <label className="inline">
+          <label className="inline" title="控制播放速度，值越大播放越快">
             速度
-            <select value={String(speed)} onChange={(event) => setSpeed(Number(event.target.value))}>
+            <select
+              value={String(speed)}
+              onChange={(event) => setSpeed(Number(event.target.value))}
+              title="控制播放速度，值越大播放越快"
+            >
               {PLAYBACK_SPEEDS.map((item) => (
                 <option value={item} key={item}>
                   {item}x
@@ -138,26 +198,54 @@ export default function App() {
             </select>
           </label>
 
-          <label className="inline">
-            跟随模式
-            <select value={followPreset} onChange={(event) => setFollowPreset(event.target.value as FollowPreset)}>
-              <option value="cinematic">电影感</option>
-              <option value="extreme">极限紧跟</option>
+          <label className="inline" title="控制镜头跟随紧密程度。0 最平稳，100 最紧跟">
+            跟随强度
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={followIntensity}
+              onChange={(event) => setFollowIntensity(Number(event.target.value))}
+              className="inline-range"
+              title="控制镜头跟随紧密程度。0 最平稳，100 最紧跟"
+            />
+            <span title="当前跟随强度值">{followIntensity}</span>
+          </label>
+
+          <label className="inline checkbox" title="开启后使用更激进镜头参数（更高缩放、更少留白、更快过渡）">
+            <input
+              type="checkbox"
+              checked={ultraAggressiveFollow}
+              onChange={(event) => setUltraAggressiveFollow(event.target.checked)}
+              title="开启后使用更激进镜头参数（更高缩放、更少留白、更快过渡）"
+            />
+            超激进跟随
+          </label>
+
+          <label className="inline" title="按时间：真实间隔；按点位：均匀推进，减少停顿">
+            播放模式
+            <select
+              value={playbackMode}
+              onChange={(event) => setPlaybackMode(event.target.value as PlaybackMode)}
+              title="按时间：真实间隔；按点位：均匀推进，减少停顿"
+            >
+              <option value="time">按时间（真实节奏）</option>
+              <option value="point">按点位（均匀节奏）</option>
             </select>
           </label>
 
-          <label className="inline checkbox">
+          <label className="inline checkbox" title="开启后镜头会自动跟随当前点位">
             <input
               type="checkbox"
               checked={followCurrent}
               onChange={(event) => setFollowCurrent(event.target.checked)}
+              title="开启后镜头会自动跟随当前点位"
             />
             跟随当前点
           </label>
 
-          <span className="time-label">
-            {points.length > 0 ? new Date(activeTime).toLocaleString() : "暂无轨迹数据"}
-          </span>
+          <span className="time-label">{points.length > 0 ? new Date(activeTime).toLocaleString() : "暂无轨迹数据"}</span>
           <span className="progress">{progressPercent}%</span>
         </div>
 
@@ -167,8 +255,15 @@ export default function App() {
           min={minTime}
           max={Math.max(minTime, maxTime)}
           value={points.length > 0 ? activeTime : 0}
-          onChange={(event) => setActiveTime(Number(event.target.value))}
+          onChange={(event) => {
+            const nextTime = Number(event.target.value);
+            setActiveTime(nextTime);
+            if (playbackMode === "point") {
+              setPlayheadIndex(findPointIndexAtOrBeforeTime(points, nextTime));
+            }
+          }}
           disabled={points.length === 0}
+          title="拖动时间轴浏览轨迹"
         />
 
         <div className="meta">

@@ -2,7 +2,7 @@ import "maplibre-gl/dist/maplibre-gl.js";
 import type * as MapLibreGL from "maplibre-gl";
 import type { GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useRef } from "react";
+import { useMemo, useEffect, useRef } from "react";
 import { TravelPoint } from "./types";
 
 const maplibregl = globalThis.maplibregl;
@@ -12,12 +12,11 @@ type MapViewProps = {
   activeTime: number;
   followCurrent: boolean;
   apiBase: string;
-  followPreset: FollowPreset;
+  followIntensity: number;
+  ultraAggressiveFollow: boolean;
 };
 
-export type FollowPreset = "cinematic" | "extreme";
-
-type FollowPresetConfig = {
+type FollowConfig = {
   windowSize: number;
   padding: { top: number; right: number; bottom: number; left: number };
   maxZoom: number;
@@ -26,24 +25,46 @@ type FollowPresetConfig = {
   easing: (t: number) => number;
 };
 
-const FOLLOW_PRESETS: Record<FollowPreset, FollowPresetConfig> = {
-  cinematic: {
-    windowSize: 8,
-    padding: { top: 112, right: 112, bottom: 156, left: 112 },
-    maxZoom: 5.8,
-    minZoom: 2.4,
-    duration: 980,
-    easing: (t) => 1 - Math.pow(1 - t, 3)
-  },
-  extreme: {
-    windowSize: 3,
-    padding: { top: 52, right: 52, bottom: 76, left: 52 },
-    maxZoom: 9.2,
-    minZoom: 3.6,
-    duration: 580,
-    easing: (t) => t * t * (3 - 2 * t)
-  }
-};
+function lerp(from: number, to: number, t: number): number {
+  return from + (to - from) * t;
+}
+
+function resolveFollowConfig(intensity: number, ultraAggressiveFollow: boolean): FollowConfig {
+  const t = Math.max(0, Math.min(100, intensity)) / 100;
+  const eased = t * t * (3 - 2 * t);
+
+  const bounds = ultraAggressiveFollow
+    ? {
+        windowMin: 1.5,
+        zoomMax: 14,
+        zoomMinMax: 7.2,
+        durationMin: 240,
+        padTopMin: 12,
+        padBottomMin: 18
+      }
+    : {
+        windowMin: 2,
+        zoomMax: 12,
+        zoomMinMax: 5.4,
+        durationMin: 360,
+        padTopMin: 20,
+        padBottomMin: 28
+      };
+
+  return {
+    windowSize: Math.max(1, Math.round(lerp(12, bounds.windowMin, eased))),
+    padding: {
+      top: Math.round(lerp(168, bounds.padTopMin, eased)),
+      right: Math.round(lerp(168, bounds.padTopMin, eased)),
+      bottom: Math.round(lerp(208, bounds.padBottomMin, eased)),
+      left: Math.round(lerp(168, bounds.padTopMin, eased))
+    },
+    maxZoom: lerp(5.2, bounds.zoomMax, eased),
+    minZoom: lerp(2.1, bounds.zoomMinMax, eased),
+    duration: Math.round(lerp(1180, bounds.durationMin, eased)),
+    easing: (x) => x * x * (3 - 2 * x)
+  };
+}
 
 function buildLocationLabel(point: TravelPoint): string {
   return [point.city, point.state, point.country].filter(Boolean).join(", ");
@@ -53,8 +74,18 @@ function toThumbnailUrl(apiBase: string, point: TravelPoint): string {
   return apiBase ? `${apiBase}${point.thumbnailPath}` : point.thumbnailPath;
 }
 
-export function MapView({ points, activeTime, followCurrent, apiBase, followPreset }: MapViewProps) {
-  const followConfig = FOLLOW_PRESETS[followPreset];
+export function MapView({
+  points,
+  activeTime,
+  followCurrent,
+  apiBase,
+  followIntensity,
+  ultraAggressiveFollow
+}: MapViewProps) {
+  const followConfig = useMemo(
+    () => resolveFollowConfig(followIntensity, ultraAggressiveFollow),
+    [followIntensity, ultraAggressiveFollow]
+  );
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreGL.Map | null>(null);
   const popupRef = useRef<MapLibreGL.Popup | null>(null);
