@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { Router } from "express";
 import { z } from "zod";
+import { config } from "../config.js";
 import { fetchThumbnail } from "../immichClient.js";
 import { getTravelPoints } from "../travelService.js";
 
@@ -17,6 +18,12 @@ function parseDate(value: string | undefined, fallback: Date): Date {
   }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
+function toAssetViewUrl(assetId: string): string | undefined {
+  const fallbackTemplate = `${config.IMMICH_BASE_URL.replace(/\/+$/, "")}/photos/{assetId}`;
+  const template = config.IMMICH_WEB_ASSET_URL_TEMPLATE?.trim() || fallbackTemplate;
+  return template.split("{assetId}").join(assetId);
 }
 
 router.get("/points", async (req, res) => {
@@ -40,7 +47,8 @@ router.get("/points", async (req, res) => {
       ...result,
       points: result.points.map((point) => ({
         ...point,
-        thumbnailPath: `/api/travel/thumbnail/${point.assetId}?size=preview`
+        thumbnailPath: `/api/travel/thumbnail/${point.assetId}?size=preview`,
+        assetViewUrl: toAssetViewUrl(point.assetId)
       }))
     });
   } catch (error) {

@@ -63,6 +63,24 @@ npm run dev:web
 - `GET /api/travel/points?start=<ISO>&end=<ISO>`
 - `GET /api/travel/thumbnail/:assetId?size=preview|thumbnail`
 
+## Immich Web Deep Link (Optional)
+
+By default, the backend reuses `IMMICH_BASE_URL` and builds links as:
+
+```txt
+${IMMICH_BASE_URL}/photos/{assetId}
+```
+
+If your Immich web route is different, override it in `server/.env`:
+
+```env
+IMMICH_WEB_ASSET_URL_TEMPLATE=https://your-immich-domain/photos/{assetId}
+```
+
+Notes:
+- Use `{assetId}` as a placeholder in the template.
+- If omitted, the default `${IMMICH_BASE_URL}/photos/{assetId}` rule is used.
+
 ## 说明
 
 - Immich API key 仅在后端使用，不暴露给浏览器。

@@ -3,7 +3,7 @@ import { fetchTravelPoints, getApiBase } from "./api";
 import { MapView, type FollowPreset } from "./MapView";
 import { TravelPoint, TravelResponse } from "./types";
 
-const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
+const PLAYBACK_SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
 
 function toDateTimeLocalValue(date: Date): string {
   const offset = date.getTimezoneOffset();

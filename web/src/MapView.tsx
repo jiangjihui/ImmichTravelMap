@@ -190,16 +190,24 @@ export function MapView({ points, activeTime, followCurrent, apiBase, followPres
           time?: string;
           location?: string;
           image?: string;
+          viewUrl?: string;
         };
+        const imageHtml = props.viewUrl
+          ? `<a href="${props.viewUrl}" target="_blank" rel="noopener noreferrer"><img src="${props.image ?? ""}" alt="preview" style="width:100%;height:148px;object-fit:cover;border-radius:10px;cursor:pointer;" /></a>`
+          : `<img src="${props.image ?? ""}" alt="preview" style="width:100%;height:148px;object-fit:cover;border-radius:10px;" />`;
+        const linkHintHtml = props.viewUrl
+          ? `<div style="margin-top:4px;font-size:12px;color:#1b4bc4;">点击图片在 Immich 中查看</div>`
+          : "";
 
         popupRef.current?.remove();
         const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "290px" })
           .setLngLat([lng, lat])
           .setHTML(`
             <div style="font-family: ui-sans-serif, system-ui; width: 260px;">
-              <img src="${props.image ?? ""}" alt="preview" style="width:100%;height:148px;object-fit:cover;border-radius:10px;" />
+              ${imageHtml}
               <div style="margin-top:8px;font-size:13px;color:#101821;">${props.time ?? ""}</div>
               <div style="margin-top:2px;font-size:12px;color:#4d5b72;">${props.location ?? ""}</div>
+              ${linkHintHtml}
             </div>
           `)
           .addTo(map);
@@ -270,7 +278,8 @@ export function MapView({ points, activeTime, followCurrent, apiBase, followPres
         properties: {
           time: new Date(point.timestamp).toLocaleString(),
           location: buildLocationLabel(point),
-          image: toThumbnailUrl(apiBase, point)
+          image: toThumbnailUrl(apiBase, point),
+          viewUrl: point.assetViewUrl ?? ""
         },
         geometry: {
           type: "Point",

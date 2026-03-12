@@ -7,6 +7,7 @@ export type TravelPoint = {
   state: string | null;
   country: string | null;
   thumbnailPath: string;
+  assetViewUrl?: string;
 };
 
 export type TravelResponse = {
