@@ -25,6 +25,13 @@ function isMobileShellRuntime(): boolean {
   return window.location.protocol === "capacitor:";
 }
 
+function isCompactViewport(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  return window.matchMedia("(max-width: 900px)").matches;
+}
+
 function resolveDefaultMode(proxyApiBase: string): ClientMode {
   if (!isMobileShellRuntime()) {
     return "proxy";
@@ -158,6 +165,8 @@ export default function App() {
   const [playheadIndex, setPlayheadIndex] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("checking");
   const [connectionHint, setConnectionHint] = useState("");
+  const [compactLayout, setCompactLayout] = useState<boolean>(() => isCompactViewport());
+  const [configExpanded, setConfigExpanded] = useState<boolean>(() => !isMobileShellRuntime() && !isCompactViewport());
 
   const client = useMemo(
     () =>
@@ -184,6 +193,25 @@ export default function App() {
     };
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
   }, [mode, proxyApiBaseInput, directAssetUrlTemplateInput, directImmichApiKeyInput, directImmichBaseUrlInput]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(max-width: 900px)");
+    const apply = () => setCompactLayout(mediaQuery.matches);
+    apply();
+
+    const listener = () => apply();
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", listener);
+      return () => mediaQuery.removeEventListener("change", listener);
+    }
+
+    mediaQuery.addListener(listener);
+    return () => mediaQuery.removeListener(listener);
+  }, []);
 
   useEffect(() => {
     if (mode !== "proxy") {
@@ -310,6 +338,14 @@ export default function App() {
     }
   }, [activeTime, isPlaying, maxTime]);
 
+  const useCompactHeader = compactLayout || isMobileShellRuntime();
+
+  useEffect(() => {
+    if (isPlaying && useCompactHeader) {
+      setConfigExpanded(false);
+    }
+  }, [isPlaying, useCompactHeader]);
+
   const progressPercent =
     minTime < maxTime ? Math.round(((activeTime - minTime) / (maxTime - minTime)) * 1000) / 10 : 0;
   const proxyHealthPath = buildHealthCheckUrl(client.mapApiBase);
@@ -333,93 +369,137 @@ export default function App() {
     mode === "proxy"
       ? `健康检查: ${proxyHealthPath}${connectionHint ? ` | ${connectionHint}` : ""}`
       : connectionHint;
+  const showConfigPanel = !useCompactHeader || configExpanded;
 
   return (
-    <div className="app">
+    <div className={`app ${useCompactHeader ? "compact-layout" : ""} ${showConfigPanel ? "config-open" : "config-closed"}`}>
       <header className="topbar">
-        <div className="title">
-          <h1>Immich Travel Map</h1>
-          <div className={`connection-status ${connectionClass}`} title={connectionTitle}>
-            连接状态：{connectionText}
+        <div className="topbar-head">
+          <div className="title">
+            <h1>Immich Travel Map</h1>
+            <div className={`connection-status ${connectionClass}`} title={connectionTitle}>
+              连接状态：{connectionText}
+            </div>
+            {showConfigPanel ? <p>支持代理模式与直连模式，按时间重现你的旅行轨迹。</p> : null}
           </div>
-          <p>支持代理模式与直连模式，按时间重现你的旅行轨迹。</p>
-        </div>
-        <div className="filters">
-          <label title="数据来源模式。代理：走本地后端；直连：浏览器直连 Immich">
-            数据模式
-            <select
-              value={mode}
-              onChange={(event) => setMode(event.target.value as ClientMode)}
-              title="数据来源模式。代理：走本地后端；直连：浏览器直连 Immich"
+
+          {useCompactHeader ? (
+            <button
+              className="secondary settings-toggle"
+              onClick={() => setConfigExpanded((prev) => !prev)}
+              title="展开或收起设置"
             >
-              <option value="proxy">代理模式（推荐）</option>
-              <option value="direct">直连模式</option>
-            </select>
-          </label>
-
-          {mode === "proxy" ? (
-            <label title="后端 API 地址。留空使用同源 /api">
-              代理 API
-              <input
-                type="text"
-                value={proxyApiBaseInput}
-                onChange={(event) => setProxyApiBaseInput(event.target.value)}
-                placeholder="留空表示同源 /api"
-                title="后端 API 地址。留空使用同源 /api"
-              />
-            </label>
+              {showConfigPanel ? "收起" : "设置"}
+            </button>
           ) : (
-            <>
-              <label title="Immich 服务地址，例如 http://localhost:2283">
-                Immich 地址
-                <input
-                  type="text"
-                  value={directImmichBaseUrlInput}
-                  onChange={(event) => setDirectImmichBaseUrlInput(event.target.value)}
-                  placeholder="http://localhost:2283"
-                  title="Immich 服务地址，例如 http://localhost:2283"
-                />
+            <div className="quick-controls">
+              <label title="数据来源模式。代理：走本地后端；直连：浏览器直连 Immich">
+                数据模式
+                <select
+                  value={mode}
+                  onChange={(event) => setMode(event.target.value as ClientMode)}
+                  title="数据来源模式。代理：走本地后端；直连：浏览器直连 Immich"
+                >
+                  <option value="proxy">代理模式（推荐）</option>
+                  <option value="direct">直连模式</option>
+                </select>
               </label>
-              <label title="Immich API Key（仅保存在当前浏览器）">
-                API Key
-                <input
-                  type="password"
-                  value={directImmichApiKeyInput}
-                  onChange={(event) => setDirectImmichApiKeyInput(event.target.value)}
-                  placeholder="输入 Immich API Key"
-                  title="Immich API Key（仅保存在当前浏览器）"
-                />
-              </label>
-              <label title="可选：Immich 页面跳转模板，支持 {assetId}">
-                跳转模板
-                <input
-                  type="text"
-                  value={directAssetUrlTemplateInput}
-                  onChange={(event) => setDirectAssetUrlTemplateInput(event.target.value)}
-                  placeholder="可选，如 https://immich/photos/{assetId}"
-                  title="可选：Immich 页面跳转模板，支持 {assetId}"
-                />
-              </label>
-            </>
-          )}
 
-          <label title="设置轨迹查询的开始时间">
-            起始时间
-            <input type="datetime-local" value={startInput} onChange={(event) => setStartInput(event.target.value)} />
-          </label>
-          <label title="设置轨迹查询的结束时间">
-            结束时间
-            <input type="datetime-local" value={endInput} onChange={(event) => setEndInput(event.target.value)} />
-          </label>
-          <button
-            className="primary"
-            onClick={() => void loadPoints()}
-            disabled={loading || client.configError !== null}
-            title="按当前配置和起止时间重新加载轨迹"
-          >
-            {loading ? "加载中..." : "加载轨迹"}
-          </button>
+              <button
+                className="primary"
+                onClick={() => void loadPoints()}
+                disabled={loading || client.configError !== null}
+                title="按当前配置和起止时间重新加载轨迹"
+              >
+                {loading ? "加载中..." : "加载轨迹"}
+              </button>
+            </div>
+          )}
         </div>
+
+        {showConfigPanel ? (
+          <div className="filters">
+            {useCompactHeader ? (
+              <label title="数据来源模式。代理：走本地后端；直连：浏览器直连 Immich">
+                数据模式
+                <select
+                  value={mode}
+                  onChange={(event) => setMode(event.target.value as ClientMode)}
+                  title="数据来源模式。代理：走本地后端；直连：浏览器直连 Immich"
+                >
+                  <option value="proxy">代理模式（推荐）</option>
+                  <option value="direct">直连模式</option>
+                </select>
+              </label>
+            ) : null}
+
+            {mode === "proxy" ? (
+              <label title="后端 API 地址。留空使用同源 /api">
+                代理 API
+                <input
+                  type="text"
+                  value={proxyApiBaseInput}
+                  onChange={(event) => setProxyApiBaseInput(event.target.value)}
+                  placeholder="留空表示同源 /api"
+                  title="后端 API 地址。留空使用同源 /api"
+                />
+              </label>
+            ) : (
+              <>
+                <label title="Immich 服务地址，例如 http://localhost:2283">
+                  Immich 地址
+                  <input
+                    type="text"
+                    value={directImmichBaseUrlInput}
+                    onChange={(event) => setDirectImmichBaseUrlInput(event.target.value)}
+                    placeholder="http://localhost:2283"
+                    title="Immich 服务地址，例如 http://localhost:2283"
+                  />
+                </label>
+                <label title="Immich API Key（仅保存在当前浏览器）">
+                  API Key
+                  <input
+                    type="password"
+                    value={directImmichApiKeyInput}
+                    onChange={(event) => setDirectImmichApiKeyInput(event.target.value)}
+                    placeholder="输入 Immich API Key"
+                    title="Immich API Key（仅保存在当前浏览器）"
+                  />
+                </label>
+                <label title="可选：Immich 页面跳转模板，支持 {assetId}">
+                  跳转模板
+                  <input
+                    type="text"
+                    value={directAssetUrlTemplateInput}
+                    onChange={(event) => setDirectAssetUrlTemplateInput(event.target.value)}
+                    placeholder="可选，如 https://immich/photos/{assetId}"
+                    title="可选：Immich 页面跳转模板，支持 {assetId}"
+                  />
+                </label>
+              </>
+            )}
+
+            <label title="设置轨迹查询的开始时间">
+              起始时间
+              <input type="datetime-local" value={startInput} onChange={(event) => setStartInput(event.target.value)} />
+            </label>
+            <label title="设置轨迹查询的结束时间">
+              结束时间
+              <input type="datetime-local" value={endInput} onChange={(event) => setEndInput(event.target.value)} />
+            </label>
+
+            {useCompactHeader ? (
+              <button
+                className="primary"
+                onClick={() => void loadPoints()}
+                disabled={loading || client.configError !== null}
+                title="按当前配置和起止时间重新加载轨迹"
+              >
+                {loading ? "加载中..." : "加载轨迹"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       <main className="map-shell">

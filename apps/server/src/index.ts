@@ -12,15 +12,22 @@ const currentDir = dirname(currentFile);
 const projectRoot = resolve(currentDir, "..", "..");
 const webDistDir = resolve(projectRoot, "web", "dist");
 const webIndexFile = resolve(webDistDir, "index.html");
-const allowedOrigins = config.WEB_ORIGIN.split(",")
+const configuredOrigins = config.WEB_ORIGIN.split(",")
   .map((origin) => origin.trim())
   .filter((origin) => origin.length > 0);
-const allowAnyOrigin = allowedOrigins.includes("*");
+const allowedOrigins = new Set<string>([
+  ...configuredOrigins,
+  `http://localhost:${config.PORT}`,
+  `http://127.0.0.1:${config.PORT}`
+]);
+const allowAnyOrigin = allowedOrigins.has("*");
 
+app.use(express.json({ limit: "1mb" }));
 app.use(
+  "/api",
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowAnyOrigin || allowedOrigins.includes(origin)) {
+      if (!origin || allowAnyOrigin || allowedOrigins.has(origin)) {
         callback(null, true);
         return;
       }
@@ -29,7 +36,6 @@ app.use(
     credentials: false
   })
 );
-app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });

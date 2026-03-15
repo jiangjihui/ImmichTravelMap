@@ -32,13 +32,21 @@ body {
 
 .topbar {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 16px;
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(29, 70, 144, 0.2);
   border-radius: 14px;
   padding: 12px 14px;
   backdrop-filter: blur(6px);
+}
+
+.topbar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-start;
 }
 
 .title h1 {
@@ -94,6 +102,27 @@ body {
   align-items: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.quick-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-toggle {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.quick-controls label {
+  display: grid;
+  font-size: 12px;
+  color: #3e4f68;
+  gap: 4px;
 }
 
 .filters label {
@@ -155,6 +184,37 @@ button:disabled {
   overflow: hidden;
   border: 1px solid rgba(16, 37, 70, 0.2);
   box-shadow: 0 8px 22px rgba(6, 26, 56, 0.15);
+}
+
+.app.compact-layout .topbar {
+  padding: 10px 12px;
+}
+
+.app.compact-layout.config-closed .topbar {
+  gap: 8px;
+}
+
+.app.compact-layout .map-shell {
+  min-height: 0;
+  height: 100%;
+  max-height: none;
+}
+
+.app.compact-layout .title h1 {
+  font-size: 17px;
+}
+
+.app.compact-layout {
+  height: 100dvh;
+  min-height: 100dvh;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.app.compact-layout .timeline-panel {
+  margin-bottom: 0;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
 }
 
 .map-container {
@@ -222,8 +282,39 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
-  .topbar {
+  .app:not(.compact-layout) .topbar-head {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .app:not(.compact-layout) .quick-controls label,
+  .app:not(.compact-layout) .quick-controls button {
+    width: 100%;
+  }
+
+  .quick-controls button {
+    min-height: 38px;
+  }
+
+  .filters label {
+    width: 100%;
+  }
+
+  .filters input[type="text"],
+  .filters input[type="password"] {
+    min-width: 0;
+  }
+
+  .app {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .app.compact-layout .filters label {
+    width: 100%;
+  }
+
+  .app.compact-layout .filters .primary {
+    width: 100%;
   }
 
   .time-label {
