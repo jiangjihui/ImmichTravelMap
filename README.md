@@ -12,8 +12,16 @@
 │  └─ track-core/    # 轨迹核心算法（时间解析/去重/抽稀）
 ├─ apps/
 │  ├─ server/   # BFF + 生产环境静态托管
-│  └─ web/      # React + Vite 前端
+│  ├─ web/      # React + Vite 前端
+│  ├─ desktop/  # Tauri 桌面壳
+│  └─ mobile/   # Capacitor 移动端壳
 ```
+
+## 开发者文档
+
+- 开发与打包环境说明：[`docs/DEVELOPER_SETUP.md`](./docs/DEVELOPER_SETUP.md)
+- App 化迁移规划：[`docs/APP_PACKAGING_PLAN.md`](./docs/APP_PACKAGING_PLAN.md)
+- 迁移任务清单：[`docs/MIGRATION_TASKS.md`](./docs/MIGRATION_TASKS.md)
 
 ## 环境要求
 
@@ -118,6 +126,7 @@ npm run start
 首次使用前需要：
 - 安装 Rust 工具链（`rustup` + MSVC build tools）
 - 安装 Tauri CLI 依赖（已在 `apps/desktop` 的 `devDependencies` 中声明）
+- 确保 `cargo` 可在命令行直接使用（`cargo -V`）
 
 开发运行：
 
@@ -135,6 +144,38 @@ npm run build:desktop
 说明：
 - Desktop 会在启动时拉起本地 sidecar：`node apps/server/dist/index.js`。
 - 前端在 Tauri 环境下默认访问 `http://127.0.0.1:8787`，不需要额外设置 `VITE_API_BASE`。
+
+## 4) Mobile 模式（Capacitor，可行性分支）
+
+首次使用前需要：
+- Android Studio（Android）
+- Xcode（iOS，仅 macOS）
+- JDK 17（Android Gradle Plugin 8.x 需要 11+，建议 17）
+- 配置 Android SDK 环境变量（`ANDROID_HOME` / `ANDROID_SDK_ROOT`）
+
+初始化原生工程：
+
+```bash
+npm install
+npm run mobile:add:android
+```
+
+iOS（仅 macOS）：
+
+```bash
+npm run mobile:add:ios
+```
+
+同步 Web 代码到移动端容器：
+
+```bash
+npm run build:mobile
+```
+
+说明：
+- 移动端当前不内置 Node sidecar，建议优先使用“直连模式”。
+- 若需代理模式，请将 `VITE_API_BASE` 指向手机可访问的远程 BFF。
+- 可通过 `npm run mobile:open:android` 或 `npm run mobile:open:ios` 打开原生工程。
 
 ## 页面功能
 
@@ -163,12 +204,18 @@ npm run build:desktop
 - `npm run dev:server`：后端开发
 - `npm run dev:web`：前端开发
 - `npm run dev:desktop`：桌面端开发运行（Tauri）
+- `npm run dev:mobile`：移动端同步（Capacitor）
 - `npm run build:packages`：构建共享包（shared-types + track-core）
 - `npm run build:web`：构建前端
 - `npm run build:server`：构建后端
 - `npm run build:desktop`：构建桌面应用（Tauri）
+- `npm run build:mobile`：构建并同步到移动端容器（Capacitor）
 - `npm run build`：一键构建（packages + web + server）
 - `npm run start`：单服务启动（生产模式）
+- `npm run mobile:add:android`：初始化 Android 工程
+- `npm run mobile:add:ios`：初始化 iOS 工程
+- `npm run mobile:open:android`：打开 Android Studio
+- `npm run mobile:open:ios`：打开 Xcode
 - `npm run release:check`：检查发布产物完整性
 - `npm run release:build`：构建并检查发布产物
 - `npm run release:start`：构建检查后启动单服务

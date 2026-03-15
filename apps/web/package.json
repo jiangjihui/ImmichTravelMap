@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/core": "^6.2.0",
     "@immich-travel-map/shared-types": "0.1.0",
     "maplibre-gl": "^5.20.0",
     "react": "^19.0.0",

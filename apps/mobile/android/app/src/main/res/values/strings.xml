@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Immich Travel Map</string>
+    <string name="title_activity_main">Immich Travel Map</string>
+    <string name="package_name">com.immichtravelmap.app</string>
+    <string name="custom_url_scheme">com.immichtravelmap.app</string>
+</resources>

@@ -18,6 +18,22 @@ type RuntimeSettings = {
   directAssetUrlTemplate: string;
 };
 
+function isMobileShellRuntime(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.location.protocol === "capacitor:";
+}
+
+function resolveDefaultMode(proxyApiBase: string): ClientMode {
+  if (!isMobileShellRuntime()) {
+    return "proxy";
+  }
+  // On mobile, empty proxy base usually means there is no local BFF.
+  // Defaulting to direct mode avoids "/api" falling back to index.html.
+  return proxyApiBase.trim().length > 0 ? "proxy" : "direct";
+}
+
 function toDateTimeLocalValue(date: Date): string {
   const offset = date.getTimezoneOffset();
   const local = new Date(date.getTime() - offset * 60000);
@@ -58,9 +74,11 @@ function buildHealthCheckUrl(apiBase: string): string {
 }
 
 function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSettings>): RuntimeSettings {
+  const defaultMode = resolveDefaultMode(defaults.proxyApiBase);
+
   if (typeof window === "undefined") {
     return {
-      mode: "proxy",
+      mode: defaultMode,
       proxyApiBase: defaults.proxyApiBase,
       directImmichBaseUrl: defaults.directImmichBaseUrl,
       directImmichApiKey: defaults.directImmichApiKey,
@@ -72,7 +90,7 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) {
       return {
-        mode: "proxy",
+        mode: defaultMode,
         proxyApiBase: defaults.proxyApiBase,
         directImmichBaseUrl: defaults.directImmichBaseUrl,
         directImmichApiKey: defaults.directImmichApiKey,
@@ -86,8 +104,12 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
         ? parsed.proxyApiBase
         : defaults.proxyApiBase;
 
+    const parsedMode = parsed.mode === "direct" ? "direct" : "proxy";
+    const resolvedMode =
+      parsedMode === "proxy" && isMobileShellRuntime() && parsedProxyApiBase.trim().length === 0 ? "direct" : parsedMode;
+
     return {
-      mode: parsed.mode === "direct" ? "direct" : "proxy",
+      mode: resolvedMode,
       proxyApiBase: parsedProxyApiBase,
       directImmichBaseUrl:
         typeof parsed.directImmichBaseUrl === "string" ? parsed.directImmichBaseUrl : defaults.directImmichBaseUrl,
@@ -100,7 +122,7 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
     };
   } catch {
     return {
-      mode: "proxy",
+      mode: defaultMode,
       proxyApiBase: defaults.proxyApiBase,
       directImmichBaseUrl: defaults.directImmichBaseUrl,
       directImmichApiKey: defaults.directImmichApiKey,
@@ -182,8 +204,8 @@ export default function App() {
           throw new Error(`HTTP ${response.status}`);
         }
         const payload = (await response.json().catch(() => null)) as { ok?: boolean } | null;
-        if (payload?.ok === false) {
-          throw new Error("health.ok=false");
+        if (!payload || payload.ok !== true) {
+          throw new Error("健康检查返回非预期内容");
         }
         if (!active) {
           return;

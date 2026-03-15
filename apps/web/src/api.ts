@@ -1,5 +1,6 @@
 import { simplifyPoints, toTimestamp } from "@immich-travel-map/track-core";
 import type { ImmichSearchResponse, TravelPointBase, TravelResponse } from "@immich-travel-map/shared-types";
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 
 const DEFAULT_PAGE_SIZE = 300;
 const MAX_PAGES = 200;
@@ -51,6 +52,50 @@ const defaultDirectImmichBaseUrl = (import.meta.env.VITE_DIRECT_IMMICH_BASE_URL 
 const defaultDirectImmichApiKey = (import.meta.env.VITE_DIRECT_IMMICH_API_KEY ?? "").trim();
 const defaultAssetUrlTemplate = (import.meta.env.VITE_IMMICH_WEB_ASSET_URL_TEMPLATE ?? "").trim();
 
+function isCapacitorRuntime(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    // Primary path: Capacitor runtime APIs.
+    if (typeof Capacitor.getPlatform === "function" && Capacitor.getPlatform() !== "web") {
+      return true;
+    }
+
+    if (typeof Capacitor.isNativePlatform === "function") {
+      if (Capacitor.isNativePlatform()) {
+        return true;
+      }
+    }
+
+    const win = window as unknown as {
+      Capacitor?: {
+        getPlatform?: () => string;
+        isNativePlatform?: () => boolean;
+      };
+      CapacitorNative?: unknown;
+    };
+
+    // Fallback for WebView bridge differences across platform/runtime versions.
+    if (typeof win.Capacitor?.getPlatform === "function" && win.Capacitor.getPlatform() !== "web") {
+      return true;
+    }
+
+    if (typeof win.Capacitor?.isNativePlatform === "function" && win.Capacitor.isNativePlatform()) {
+      return true;
+    }
+
+    if (win.CapacitorNative) {
+      return true;
+    }
+  } catch {
+    // noop
+  }
+
+  return false;
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -77,7 +122,14 @@ async function fetchProxyTravelPoints(apiBase: string, startIso: string, endIso:
     throw new Error(`加载轨迹失败 (${response.status}): ${text}`);
   }
 
-  return (await response.json()) as TravelResponse;
+  const cloned = response.clone();
+  try {
+    return (await response.json()) as TravelResponse;
+  } catch {
+    const text = (await cloned.text()).trim();
+    const preview = text.slice(0, 120).replace(/\s+/g, " ");
+    throw new Error(`代理接口未返回 JSON，请检查“代理 API”配置。响应片段: ${preview}`);
+  }
 }
 
 async function fetchImmichSearchPage(
@@ -85,6 +137,29 @@ async function fetchImmichSearchPage(
   apiKey: string,
   body: Record<string, unknown>
 ): Promise<ImmichSearchResponse> {
+  if (isCapacitorRuntime()) {
+    try {
+      // Native HTTP bypasses WebView CORS restrictions on mobile.
+      const response = await CapacitorHttp.post({
+        url: `${trimTrailingSlash(baseUrl)}/api/search/metadata`,
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey
+        },
+        data: body
+      });
+      const status = response.status ?? 0;
+      if (status < 200 || status >= 300) {
+        throw new Error(`Immich metadata 查询失败 (${status})`);
+      }
+      return response.data as ImmichSearchResponse;
+    } catch (error) {
+      throw new Error(
+        `无法连接 Immich（移动端原生请求失败）：${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
   let response: Response;
   try {
     response = await fetch(`${trimTrailingSlash(baseUrl)}/api/search/metadata`, {

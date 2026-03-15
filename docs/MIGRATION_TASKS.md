@@ -152,8 +152,8 @@
 目标：验证移动端可用性，优先 Android。
 
 任务：
-- [ ] 新建 `apps/mobile`
-- [ ] 接入 `apps/web` 打包产物
+- [x] 新建 `apps/mobile`
+- [x] 接入 `apps/web` 打包产物
 - [ ] 评估直连 Immich 的网络与证书场景
 - [ ] 配置安全存储 API Key（Keystore/Keychain）
 

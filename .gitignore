@@ -13,6 +13,14 @@ dist/
 **/.vite/
 **/.vite-temp/
 
+# mobile native artifacts
+**/android/.gradle/
+**/android/build/
+**/android/app/build/
+**/ios/App/Pods/
+**/ios/App/build/
+**/DerivedData/
+
 # env files (keep examples)
 .env
 .env.*
