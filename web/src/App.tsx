@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchTravelPoints, getApiBase } from "./api";
+import { createTravelClient, getDefaultClientSettings, type ClientMode } from "./api";
 import { MapView } from "./MapView";
-import { TravelPoint, TravelResponse } from "./types";
+import { type TravelPoint, type TravelResponse } from "./types";
 
 const PLAYBACK_SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
 const POINT_BASE_INTERVAL_MS = 160;
+const SETTINGS_STORAGE_KEY = "immich-travel-map.settings.v1";
 
 type PlaybackMode = "time" | "point";
+
+type RuntimeSettings = {
+  mode: ClientMode;
+  proxyApiBase: string;
+  directImmichBaseUrl: string;
+  directImmichApiKey: string;
+  directAssetUrlTemplate: string;
+};
 
 function toDateTimeLocalValue(date: Date): string {
   const offset = date.getTimezoneOffset();
@@ -39,12 +48,66 @@ function findPointIndexAtOrBeforeTime(points: TravelPoint[], targetTime: number)
   return answer;
 }
 
+function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSettings>): RuntimeSettings {
+  if (typeof window === "undefined") {
+    return {
+      mode: "proxy",
+      proxyApiBase: defaults.proxyApiBase,
+      directImmichBaseUrl: defaults.directImmichBaseUrl,
+      directImmichApiKey: defaults.directImmichApiKey,
+      directAssetUrlTemplate: defaults.directAssetUrlTemplate
+    };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return {
+        mode: "proxy",
+        proxyApiBase: defaults.proxyApiBase,
+        directImmichBaseUrl: defaults.directImmichBaseUrl,
+        directImmichApiKey: defaults.directImmichApiKey,
+        directAssetUrlTemplate: defaults.directAssetUrlTemplate
+      };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<RuntimeSettings>;
+    return {
+      mode: parsed.mode === "direct" ? "direct" : "proxy",
+      proxyApiBase: typeof parsed.proxyApiBase === "string" ? parsed.proxyApiBase : defaults.proxyApiBase,
+      directImmichBaseUrl:
+        typeof parsed.directImmichBaseUrl === "string" ? parsed.directImmichBaseUrl : defaults.directImmichBaseUrl,
+      directImmichApiKey:
+        typeof parsed.directImmichApiKey === "string" ? parsed.directImmichApiKey : defaults.directImmichApiKey,
+      directAssetUrlTemplate:
+        typeof parsed.directAssetUrlTemplate === "string"
+          ? parsed.directAssetUrlTemplate
+          : defaults.directAssetUrlTemplate
+    };
+  } catch {
+    return {
+      mode: "proxy",
+      proxyApiBase: defaults.proxyApiBase,
+      directImmichBaseUrl: defaults.directImmichBaseUrl,
+      directImmichApiKey: defaults.directImmichApiKey,
+      directAssetUrlTemplate: defaults.directAssetUrlTemplate
+    };
+  }
+}
+
 export default function App() {
   const now = useMemo(() => new Date(), []);
   const defaultStart = useMemo(() => new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), [now]);
+  const defaultClientSettings = useMemo(() => getDefaultClientSettings(), []);
+  const initialSettings = useMemo(() => loadRuntimeSettings(defaultClientSettings), [defaultClientSettings]);
 
   const [startInput, setStartInput] = useState<string>(toDateTimeLocalValue(defaultStart));
   const [endInput, setEndInput] = useState<string>(toDateTimeLocalValue(now));
+  const [mode, setMode] = useState<ClientMode>(initialSettings.mode);
+  const [proxyApiBaseInput, setProxyApiBaseInput] = useState(initialSettings.proxyApiBase);
+  const [directImmichBaseUrlInput, setDirectImmichBaseUrlInput] = useState(initialSettings.directImmichBaseUrl);
+  const [directImmichApiKeyInput, setDirectImmichApiKeyInput] = useState(initialSettings.directImmichApiKey);
+  const [directAssetUrlTemplateInput, setDirectAssetUrlTemplateInput] = useState(initialSettings.directAssetUrlTemplate);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<TravelResponse["summary"] | null>(null);
@@ -58,17 +121,45 @@ export default function App() {
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("time");
   const [playheadIndex, setPlayheadIndex] = useState(0);
 
+  const client = useMemo(
+    () =>
+      createTravelClient({
+        mode,
+        proxyApiBase: proxyApiBaseInput,
+        directImmichBaseUrl: directImmichBaseUrlInput,
+        directImmichApiKey: directImmichApiKeyInput,
+        directAssetUrlTemplate: directAssetUrlTemplateInput
+      }),
+    [mode, proxyApiBaseInput, directAssetUrlTemplateInput, directImmichApiKeyInput, directImmichBaseUrlInput]
+  );
+
   const minTime = points.length > 0 ? new Date(points[0].timestamp).getTime() : 0;
   const maxTime = points.length > 0 ? new Date(points[points.length - 1].timestamp).getTime() : 0;
 
+  useEffect(() => {
+    const payload: RuntimeSettings = {
+      mode,
+      proxyApiBase: proxyApiBaseInput,
+      directImmichBaseUrl: directImmichBaseUrlInput,
+      directImmichApiKey: directImmichApiKeyInput,
+      directAssetUrlTemplate: directAssetUrlTemplateInput
+    };
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+  }, [mode, proxyApiBaseInput, directAssetUrlTemplateInput, directImmichApiKeyInput, directImmichBaseUrlInput]);
+
   async function loadPoints(): Promise<void> {
+    if (client.configError) {
+      setError(client.configError);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setIsPlaying(false);
     try {
       const startIso = new Date(startInput).toISOString();
       const endIso = new Date(endInput).toISOString();
-      const data = await fetchTravelPoints(startIso, endIso);
+      const data = await client.fetchTravelPoints(startIso, endIso);
       setPoints(data.points);
       setSummary(data.summary);
       if (data.points.length > 0) {
@@ -83,6 +174,9 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (client.mode === "direct" && client.configError) {
+      return;
+    }
     void loadPoints();
   }, []);
 
@@ -139,9 +233,67 @@ export default function App() {
       <header className="topbar">
         <div className="title">
           <h1>Immich Travel Map</h1>
-          <p>拖动时间轴，按时间重现你的旅行轨迹。</p>
+          <p>支持代理模式与直连模式，按时间重现你的旅行轨迹。</p>
         </div>
         <div className="filters">
+          <label title="数据来源模式。代理：走本地后端；直连：浏览器直连 Immich">
+            数据模式
+            <select
+              value={mode}
+              onChange={(event) => setMode(event.target.value as ClientMode)}
+              title="数据来源模式。代理：走本地后端；直连：浏览器直连 Immich"
+            >
+              <option value="proxy">代理模式（推荐）</option>
+              <option value="direct">直连模式</option>
+            </select>
+          </label>
+
+          {mode === "proxy" ? (
+            <label title="后端 API 地址。留空使用同源 /api">
+              代理 API
+              <input
+                type="text"
+                value={proxyApiBaseInput}
+                onChange={(event) => setProxyApiBaseInput(event.target.value)}
+                placeholder="留空表示同源 /api"
+                title="后端 API 地址。留空使用同源 /api"
+              />
+            </label>
+          ) : (
+            <>
+              <label title="Immich 服务地址，例如 http://localhost:2283">
+                Immich 地址
+                <input
+                  type="text"
+                  value={directImmichBaseUrlInput}
+                  onChange={(event) => setDirectImmichBaseUrlInput(event.target.value)}
+                  placeholder="http://localhost:2283"
+                  title="Immich 服务地址，例如 http://localhost:2283"
+                />
+              </label>
+              <label title="Immich API Key（仅保存在当前浏览器）">
+                API Key
+                <input
+                  type="password"
+                  value={directImmichApiKeyInput}
+                  onChange={(event) => setDirectImmichApiKeyInput(event.target.value)}
+                  placeholder="输入 Immich API Key"
+                  title="Immich API Key（仅保存在当前浏览器）"
+                />
+              </label>
+              <label title="可选：Immich 页面跳转模板，支持 {assetId}">
+                跳转模板
+                <input
+                  type="text"
+                  value={directAssetUrlTemplateInput}
+                  onChange={(event) => setDirectAssetUrlTemplateInput(event.target.value)}
+                  placeholder="可选，如 https://immich/photos/{assetId}"
+                  title="可选：Immich 页面跳转模板，支持 {assetId}"
+                />
+              </label>
+            </>
+          )}
+
           <label title="设置轨迹查询的开始时间">
             起始时间
             <input type="datetime-local" value={startInput} onChange={(event) => setStartInput(event.target.value)} />
@@ -153,8 +305,8 @@ export default function App() {
           <button
             className="primary"
             onClick={() => void loadPoints()}
-            disabled={loading}
-            title="按当前起止时间重新加载轨迹"
+            disabled={loading || client.configError !== null}
+            title="按当前配置和起止时间重新加载轨迹"
           >
             {loading ? "加载中..." : "加载轨迹"}
           </button>
@@ -168,7 +320,8 @@ export default function App() {
           followCurrent={followCurrent}
           followIntensity={followIntensity}
           ultraAggressiveFollow={ultraAggressiveFollow}
-          apiBase={getApiBase()}
+          apiBase={client.mapApiBase}
+          thumbnailAuth={client.thumbnailAuth}
         />
       </main>
 
@@ -277,6 +430,7 @@ export default function App() {
             <span>尚未加载数据</span>
           )}
           {error ? <span className="error">{error}</span> : null}
+          {client.configError ? <span className="error">{client.configError}</span> : null}
         </div>
       </section>
     </div>

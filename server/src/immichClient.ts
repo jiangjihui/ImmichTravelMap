@@ -1,5 +1,5 @@
+import type { ImmichSearchResponse } from "@immich-travel-map/shared-types";
 import { config } from "./config.js";
-import { ImmichSearchResponse } from "./types.js";
 
 function buildImmichUrl(path: string): string {
   return `${config.IMMICH_BASE_URL}${path}`;

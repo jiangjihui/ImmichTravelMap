@@ -21,7 +21,7 @@ export type ImmichSearchResponse = {
   };
 };
 
-export type TravelPoint = {
+export type TravelPointBase = {
   assetId: string;
   timestamp: string;
   latitude: number;
@@ -31,13 +31,22 @@ export type TravelPoint = {
   country: string | null;
 };
 
-export type TravelPointsResult = {
-  summary: {
-    start: string;
-    end: string;
-    rawAssetCount: number;
-    geoPointCount: number;
-    simplifiedPointCount: number;
-  };
-  points: TravelPoint[];
+export type TravelPoint = TravelPointBase & {
+  thumbnailPath: string;
+  assetViewUrl?: string;
 };
+
+export type TravelResponseSummary = {
+  start: string;
+  end: string;
+  rawAssetCount: number;
+  geoPointCount: number;
+  simplifiedPointCount: number;
+};
+
+export type TravelPointsResult<TPoint = TravelPoint> = {
+  summary: TravelResponseSummary;
+  points: TPoint[];
+};
+
+export type TravelResponse = TravelPointsResult;

@@ -3,13 +3,20 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": [
+    "packages/*",
     "server",
     "web"
   ],
   "scripts": {
-    "dev:server": "npm --prefix server run dev",
-    "dev:web": "npm --prefix web run dev",
+    "dev:server": "npm run build:packages && npm --prefix server run dev",
+    "dev:web": "npm run build:packages && npm --prefix web run dev",
+    "build:packages": "npm --prefix packages/shared-types run build && npm --prefix packages/track-core run build",
     "build:server": "npm --prefix server run build",
-    "build:web": "npm --prefix web run build"
+    "build:web": "npm --prefix web run build",
+    "build": "npm run build:packages && npm run build:web && npm run build:server",
+    "start": "npm --prefix server run start",
+    "release:check": "node scripts/check-release-artifacts.mjs",
+    "release:build": "npm run build && npm run release:check",
+    "release:start": "npm run release:build && npm run start"
   }
 }

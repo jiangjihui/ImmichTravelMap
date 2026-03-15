@@ -1,8 +1,28 @@
+# dependencies
 node_modules/
-.npm-cache
+**/node_modules/
+.npm-cache/
+
+# build artifacts
 dist/
+**/dist/
+**/*.tsbuildinfo
+
+# vite/cache
+**/.vite/
+**/.vite-temp/
+
+# env files (keep examples)
 .env
-.env.local
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# logs
 *.log
+
+# system files
 .DS_Store
 Thumbs.db

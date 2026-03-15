@@ -68,6 +68,8 @@ body {
 }
 
 input[type="datetime-local"],
+input[type="text"],
+input[type="password"],
 select {
   border: 1px solid #b4c5e5;
   background: #f9fbff;
@@ -75,6 +77,11 @@ select {
   border-radius: 10px;
   padding: 6px 10px;
   min-height: 36px;
+}
+
+.filters input[type="text"],
+.filters input[type="password"] {
+  min-width: 220px;
 }
 
 button {

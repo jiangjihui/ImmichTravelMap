@@ -1,17 +1,16 @@
-import "maplibre-gl/dist/maplibre-gl.js";
-import type * as MapLibreGL from "maplibre-gl";
+import maplibregl from "maplibre-gl";
+import maplibreglWorkerUrl from "maplibre-gl/dist/maplibre-gl-csp-worker.js?url";
 import type { GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useMemo, useEffect, useRef } from "react";
 import { TravelPoint } from "./types";
-
-const maplibregl = globalThis.maplibregl;
 
 type MapViewProps = {
   points: TravelPoint[];
   activeTime: number;
   followCurrent: boolean;
   apiBase: string;
+  thumbnailAuth: { baseUrl: string; apiKey: string } | null;
   followIntensity: number;
   ultraAggressiveFollow: boolean;
 };
@@ -24,6 +23,16 @@ type FollowConfig = {
   duration: number;
   easing: (t: number) => number;
 };
+
+let workerConfigured = false;
+
+function ensureMaplibreWorkerConfigured() {
+  if (workerConfigured) {
+    return;
+  }
+  maplibregl.setWorkerUrl(maplibreglWorkerUrl);
+  workerConfigured = true;
+}
 
 function lerp(from: number, to: number, t: number): number {
   return from + (to - from) * t;
@@ -70,8 +79,31 @@ function buildLocationLabel(point: TravelPoint): string {
   return [point.city, point.state, point.country].filter(Boolean).join(", ");
 }
 
-function toThumbnailUrl(apiBase: string, point: TravelPoint): string {
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function toThumbnailUrl(apiBase: string, point: TravelPoint): string | null {
+  if (!point.thumbnailPath) {
+    return null;
+  }
   return apiBase ? `${apiBase}${point.thumbnailPath}` : point.thumbnailPath;
+}
+
+async function fetchDirectThumbnail(
+  assetId: string,
+  auth: { baseUrl: string; apiKey: string }
+): Promise<string | null> {
+  const response = await fetch(`${trimTrailingSlash(auth.baseUrl)}/api/assets/${assetId}/thumbnail?size=preview`, {
+    headers: {
+      "x-api-key": auth.apiKey
+    }
+  });
+  if (!response.ok) {
+    return null;
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 export function MapView({
@@ -79,6 +111,7 @@ export function MapView({
   activeTime,
   followCurrent,
   apiBase,
+  thumbnailAuth,
   followIntensity,
   ultraAggressiveFollow
 }: MapViewProps) {
@@ -87,14 +120,22 @@ export function MapView({
     [followIntensity, ultraAggressiveFollow]
   );
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<MapLibreGL.Map | null>(null);
-  const popupRef = useRef<MapLibreGL.Popup | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const popupRef = useRef<maplibregl.Popup | null>(null);
+  const popupObjectUrlRef = useRef<string | null>(null);
+  const thumbnailAuthRef = useRef<{ baseUrl: string; apiKey: string } | null>(thumbnailAuth);
   const lastCenteredAssetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    thumbnailAuthRef.current = thumbnailAuth;
+  }, [thumbnailAuth]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
       return;
     }
+
+    ensureMaplibreWorkerConfigured();
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -218,37 +259,133 @@ export function MapView({
 
         const [lng, lat] = feature.geometry.coordinates;
         const props = feature.properties as {
+          assetId?: string;
           time?: string;
           location?: string;
           image?: string;
           viewUrl?: string;
         };
-        const imageHtml = props.viewUrl
-          ? `<a href="${props.viewUrl}" target="_blank" rel="noopener noreferrer"><img src="${props.image ?? ""}" alt="preview" style="width:100%;height:148px;object-fit:cover;border-radius:10px;cursor:pointer;" /></a>`
-          : `<img src="${props.image ?? ""}" alt="preview" style="width:100%;height:148px;object-fit:cover;border-radius:10px;" />`;
-        const linkHintHtml = props.viewUrl
-          ? `<div style="margin-top:4px;font-size:12px;color:#1b4bc4;">点击图片在 Immich 中查看</div>`
-          : "";
+        const previewUrl = props.image?.trim() ? props.image : "";
+
+        if (popupObjectUrlRef.current) {
+          URL.revokeObjectURL(popupObjectUrlRef.current);
+          popupObjectUrlRef.current = null;
+        }
 
         popupRef.current?.remove();
+
+        const popupContent = document.createElement("div");
+        popupContent.style.fontFamily = "ui-sans-serif, system-ui";
+        popupContent.style.width = "260px";
+
+        const imageHost = document.createElement("div");
+        imageHost.style.width = "100%";
+        imageHost.style.height = "148px";
+        imageHost.style.borderRadius = "10px";
+        imageHost.style.overflow = "hidden";
+        imageHost.style.background = "#eef3fd";
+        popupContent.appendChild(imageHost);
+
+        const renderImage = (src: string) => {
+          const image = document.createElement("img");
+          image.src = src;
+          image.alt = "preview";
+          image.style.width = "100%";
+          image.style.height = "148px";
+          image.style.objectFit = "cover";
+
+          if (props.viewUrl) {
+            const link = document.createElement("a");
+            link.href = props.viewUrl;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.style.display = "block";
+            link.style.cursor = "pointer";
+            link.appendChild(image);
+            imageHost.replaceChildren(link);
+            return;
+          }
+
+          imageHost.replaceChildren(image);
+        };
+
+        const renderHint = (text: string) => {
+          const hint = document.createElement("div");
+          hint.textContent = text;
+          hint.style.height = "148px";
+          hint.style.display = "flex";
+          hint.style.alignItems = "center";
+          hint.style.justifyContent = "center";
+          hint.style.color = "#516585";
+          hint.style.fontSize = "12px";
+          imageHost.replaceChildren(hint);
+        };
+
+        if (previewUrl) {
+          renderImage(previewUrl);
+        } else {
+          renderHint("预览加载中...");
+        }
+
+        const timeLine = document.createElement("div");
+        timeLine.textContent = props.time ?? "";
+        timeLine.style.marginTop = "8px";
+        timeLine.style.fontSize = "13px";
+        timeLine.style.color = "#101821";
+        popupContent.appendChild(timeLine);
+
+        const locationLine = document.createElement("div");
+        locationLine.textContent = props.location ?? "";
+        locationLine.style.marginTop = "2px";
+        locationLine.style.fontSize = "12px";
+        locationLine.style.color = "#4d5b72";
+        popupContent.appendChild(locationLine);
+
+        if (props.viewUrl) {
+          const linkHint = document.createElement("div");
+          linkHint.textContent = "点击图片在 Immich 中查看";
+          linkHint.style.marginTop = "4px";
+          linkHint.style.fontSize = "12px";
+          linkHint.style.color = "#1b4bc4";
+          popupContent.appendChild(linkHint);
+        }
+
         const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "290px" })
           .setLngLat([lng, lat])
-          .setHTML(`
-            <div style="font-family: ui-sans-serif, system-ui; width: 260px;">
-              ${imageHtml}
-              <div style="margin-top:8px;font-size:13px;color:#101821;">${props.time ?? ""}</div>
-              <div style="margin-top:2px;font-size:12px;color:#4d5b72;">${props.location ?? ""}</div>
-              ${linkHintHtml}
-            </div>
-          `)
+          .setDOMContent(popupContent)
           .addTo(map);
 
         popupRef.current = popup;
+
+        if (!previewUrl && props.assetId && thumbnailAuthRef.current) {
+          void fetchDirectThumbnail(props.assetId, thumbnailAuthRef.current)
+            .then((objectUrl) => {
+              if (!objectUrl) {
+                renderHint("无法加载预览图");
+                return;
+              }
+              if (popupRef.current !== popup) {
+                URL.revokeObjectURL(objectUrl);
+                return;
+              }
+              popupObjectUrlRef.current = objectUrl;
+              renderImage(objectUrl);
+            })
+            .catch(() => {
+              renderHint("无法加载预览图");
+            });
+        } else if (!previewUrl) {
+          renderHint("无预览图");
+        }
       });
     });
 
     return () => {
       popupRef.current?.remove();
+      if (popupObjectUrlRef.current) {
+        URL.revokeObjectURL(popupObjectUrlRef.current);
+        popupObjectUrlRef.current = null;
+      }
       map.remove();
       mapRef.current = null;
     };
@@ -307,6 +444,7 @@ export function MapView({
       features: visible.map((point) => ({
         type: "Feature",
         properties: {
+          assetId: point.assetId,
           time: new Date(point.timestamp).toLocaleString(),
           location: buildLocationLabel(point),
           image: toThumbnailUrl(apiBase, point),

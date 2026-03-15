@@ -4,10 +4,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
-    exclude: ["maplibre-gl"],
-    esbuildOptions: {
-      target: "esnext"
-    }
+    exclude: ["maplibre-gl"]
   },
   server: {
     proxy: {

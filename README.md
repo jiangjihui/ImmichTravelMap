@@ -1,87 +1,148 @@
 # ImmichTravelMap
 
-基于 Immich API 的旅行轨迹回放应用。选择起止时间后，地图按时间轴动态生长轨迹，支持点击轨迹点查看照片缩略图。
+基于 Immich API 的旅行轨迹回放应用。  
+支持按时间范围拉取照片地理信息，在地图上播放轨迹，并可点击轨迹点查看缩略图和跳转 Immich 照片页。
 
-## 技术栈
-
-- 前端: React + Vite + TypeScript + MapLibre GL
-- 后端: Node.js + Express + TypeScript
-- 底图: OpenStreetMap raster tiles
-
-## 功能说明（当前版本）
-
-- 按起止时间从 Immich 拉取带地理信息的资产
-- 按时间升序生成轨迹并去重简化
-- 时间轴拖动时轨迹动态增长
-- 播放/暂停、播放速度切换
-- 跟随当前点相机
-- 点击轨迹点弹出缩略图 + 时间 + 地点
-
-## 目录结构
+## 项目结构
 
 ```txt
 .
-├─ server/   # Immich 代理与轨迹数据处理
-└─ web/      # 地图与时间轴交互
+├─ packages/
+│  ├─ shared-types/  # 前后端共享类型
+│  └─ track-core/    # 轨迹核心算法（时间解析/去重/抽稀）
+├─ server/   # BFF + 生产环境静态托管
+└─ web/      # React + Vite 前端
 ```
 
-## 启动方式
+## 环境要求
 
-1. 安装依赖（根目录执行）:
+- Node.js 18+（建议 20+）
+- 可访问的 Immich 服务
+- Immich API Key
+
+## 安装依赖
 
 ```bash
 npm install
 ```
 
-2. 配置后端环境变量:
+## 环境变量
 
-- 复制 `server/.env.example` 为 `server/.env`
-- 填入:
-  - `IMMICH_BASE_URL=http://localhost:2283`
-  - `IMMICH_API_KEY=<你的 Immich API key>`
+### 后端（必填）
 
-3. 可选配置前端环境变量:
+复制 `server/.env.example` 到 `server/.env`：
 
-- 复制 `web/.env.example` 为 `web/.env`
-- 默认 `VITE_API_BASE=http://localhost:8787`
-
-4. 分别启动后端与前端（两个终端）:
-
-```bash
-npm run dev:server
+```env
+IMMICH_BASE_URL=http://localhost:2283
+IMMICH_API_KEY=replace_with_your_api_key
+PORT=8787
+WEB_ORIGIN=http://localhost:5173
 ```
 
-```bash
-npm run dev:web
-```
-
-5. 打开 `http://localhost:5173`
-
-## API（BFF）
-
-- `GET /api/health`
-- `GET /api/travel/points?start=<ISO>&end=<ISO>`
-- `GET /api/travel/thumbnail/:assetId?size=preview|thumbnail`
-
-## Immich Web Deep Link (Optional)
-
-By default, the backend reuses `IMMICH_BASE_URL` and builds links as:
-
-```txt
-${IMMICH_BASE_URL}/photos/{assetId}
-```
-
-If your Immich web route is different, override it in `server/.env`:
+可选（Immich 页面跳转模板）：
 
 ```env
 IMMICH_WEB_ASSET_URL_TEMPLATE=https://your-immich-domain/photos/{assetId}
 ```
 
-Notes:
-- Use `{assetId}` as a placeholder in the template.
-- If omitted, the default `${IMMICH_BASE_URL}/photos/{assetId}` rule is used.
+说明：
+- 不配置时默认使用 `${IMMICH_BASE_URL}/photos/{assetId}`。
+- `{assetId}` 会自动替换为实际资产 ID。
 
-## 说明
+### 前端（可选）
 
-- Immich API key 仅在后端使用，不暴露给浏览器。
-- OSM 官方瓦片服务适合开发与轻量使用；生产高流量建议改为商业瓦片或自建瓦片服务。
+复制 `web/.env.example` 到 `web/.env`：
+
+```env
+VITE_API_BASE=http://localhost:8787
+VITE_DIRECT_IMMICH_BASE_URL=
+VITE_DIRECT_IMMICH_API_KEY=
+VITE_IMMICH_WEB_ASSET_URL_TEMPLATE=
+```
+
+说明：
+- `VITE_API_BASE`：代理模式 API 地址，留空则同源 `/api`
+- `VITE_DIRECT_IMMICH_BASE_URL`：直连模式默认 Immich 地址
+- `VITE_DIRECT_IMMICH_API_KEY`：直连模式默认 API Key（仅建议本地受控环境）
+- `VITE_IMMICH_WEB_ASSET_URL_TEMPLATE`：直连模式照片跳转模板，支持 `{assetId}`
+
+## 启动方式
+
+## 1) 开发模式（前后端分开）
+
+终端 A：
+
+```bash
+npm run dev:server
+```
+
+终端 B：
+
+```bash
+npm run dev:web
+```
+
+打开：`http://localhost:5173`
+
+## 2) 单服务模式（推荐给用户）
+
+只启动一个服务：
+
+```bash
+npm run build
+npm run start
+```
+
+打开：`http://localhost:8787`
+
+说明：
+- `server` 会自动托管 `web/dist`。
+- 若 `web/dist` 不存在，`server` 会退回 API-only 模式。
+
+## 快速发布（单服务）
+
+用于“给别人直接运行”的最短流程：
+
+```bash
+npm run release:build
+npm run start
+```
+
+说明：
+- `release:build` 会先构建前后端，再执行产物检查。
+- 检查内容包括：`server/dist/index.js`、`web/dist/index.html`、`web/dist/assets` 以及基础静态资源完整性。
+
+## 页面功能
+
+- 数据模式：
+  - 代理模式（推荐）：前端调用本项目后端 `/api/travel/*`
+  - 直连模式：前端直接调用 Immich API（需浏览器可访问且 CORS 允许）
+- 加载轨迹：选择起止时间，点击“加载轨迹”
+- 播放控制：播放/暂停、速度（0.1x~4x）
+- 播放模式：
+  - 按时间（真实节奏）
+  - 按点位（均匀节奏）
+- 镜头跟随：
+  - 跟随当前点
+  - 跟随强度滑条（0~100）
+  - 超激进跟随开关
+- 轨迹点弹窗：缩略图、时间、地点，支持跳转 Immich 原图页
+
+## API
+
+- `GET /api/health`
+- `GET /api/travel/points?start=<ISO>&end=<ISO>`
+- `GET /api/travel/thumbnail/:assetId?size=preview|thumbnail`
+
+## 脚本
+
+- `npm run dev:server`：后端开发
+- `npm run dev:web`：前端开发
+- `npm run build:packages`：构建共享包（shared-types + track-core）
+- `npm run build:web`：构建前端
+- `npm run build:server`：构建后端
+- `npm run build`：一键构建（packages + web + server）
+- `npm run start`：单服务启动（生产模式）
+- `npm run release:check`：检查发布产物完整性
+- `npm run release:build`：构建并检查发布产物
+- `npm run release:start`：构建检查后启动单服务
