@@ -22,7 +22,31 @@ export type TravelClient = {
   fetchTravelPoints: (startIso: string, endIso: string) => Promise<TravelResponse>;
 };
 
-const defaultProxyApiBase = (import.meta.env.VITE_API_BASE ?? "").trim();
+function detectDesktopDefaultProxyApiBase(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  if (window.location.protocol === "tauri:") {
+    return "http://127.0.0.1:8787";
+  }
+
+  if (window.location.hostname === "tauri.localhost") {
+    return "http://127.0.0.1:8787";
+  }
+
+  return "";
+}
+
+function resolveProxyApiBase(candidate?: string): string {
+  const trimmed = (candidate ?? "").trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  return detectDesktopDefaultProxyApiBase();
+}
+
+const defaultProxyApiBase = resolveProxyApiBase(import.meta.env.VITE_API_BASE);
 const defaultDirectImmichBaseUrl = (import.meta.env.VITE_DIRECT_IMMICH_BASE_URL ?? "").trim();
 const defaultDirectImmichApiKey = (import.meta.env.VITE_DIRECT_IMMICH_API_KEY ?? "").trim();
 const defaultAssetUrlTemplate = (import.meta.env.VITE_IMMICH_WEB_ASSET_URL_TEMPLATE ?? "").trim();
@@ -174,7 +198,7 @@ export function getDefaultClientSettings() {
 
 export function createTravelClient(config: TravelClientConfig): TravelClient {
   if (config.mode === "proxy") {
-    const proxyApiBase = (config.proxyApiBase ?? defaultProxyApiBase).trim();
+    const proxyApiBase = resolveProxyApiBase(config.proxyApiBase ?? defaultProxyApiBase);
     return {
       mode: "proxy",
       mapApiBase: proxyApiBase,

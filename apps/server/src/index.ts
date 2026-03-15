@@ -12,10 +12,20 @@ const currentDir = dirname(currentFile);
 const projectRoot = resolve(currentDir, "..", "..");
 const webDistDir = resolve(projectRoot, "web", "dist");
 const webIndexFile = resolve(webDistDir, "index.html");
+const allowedOrigins = config.WEB_ORIGIN.split(",")
+  .map((origin) => origin.trim())
+  .filter((origin) => origin.length > 0);
+const allowAnyOrigin = allowedOrigins.includes("*");
 
 app.use(
   cors({
-    origin: config.WEB_ORIGIN,
+    origin: (origin, callback) => {
+      if (!origin || allowAnyOrigin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin ${origin} is not allowed by WEB_ORIGIN`));
+    },
     credentials: false
   })
 );
@@ -33,7 +43,7 @@ if (existsSync(webDistDir)) {
     res.sendFile(webIndexFile);
   });
 } else {
-  console.log("web/dist not found, API-only mode enabled");
+  console.log("apps/web/dist not found, API-only mode enabled");
 }
 
 app.listen(config.PORT, () => {

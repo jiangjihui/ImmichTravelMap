@@ -53,6 +53,42 @@ body {
   font-size: 13px;
 }
 
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.connection-status.connected {
+  color: #0f6f46;
+  background: #e8f8ef;
+  border-color: #8fd4af;
+}
+
+.connection-status.checking {
+  color: #8a5a00;
+  background: #fff5dd;
+  border-color: #f0c878;
+}
+
+.connection-status.disconnected {
+  color: #9b1f1f;
+  background: #ffebeb;
+  border-color: #f3a8a8;
+}
+
+.connection-status.direct {
+  color: #1d3f8f;
+  background: #eaf1ff;
+  border-color: #a8bfeb;
+}
+
 .filters {
   display: flex;
   align-items: flex-end;

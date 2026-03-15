@@ -6,9 +6,9 @@ const scriptDir = fileURLToPath(new URL(".", import.meta.url));
 const rootDir = resolve(scriptDir, "..");
 
 const requiredPaths = [
-  { name: "server build entry", path: resolve(rootDir, "server", "dist", "index.js") },
-  { name: "web app entry", path: resolve(rootDir, "web", "dist", "index.html") },
-  { name: "web assets dir", path: resolve(rootDir, "web", "dist", "assets"), dir: true }
+  { name: "server build entry", path: resolve(rootDir, "apps", "server", "dist", "index.js") },
+  { name: "web app entry", path: resolve(rootDir, "apps", "web", "dist", "index.html") },
+  { name: "web assets dir", path: resolve(rootDir, "apps", "web", "dist", "assets"), dir: true }
 ];
 
 const errors = [];
@@ -23,7 +23,7 @@ for (const item of requiredPaths) {
   }
 }
 
-const assetsDir = resolve(rootDir, "web", "dist", "assets");
+const assetsDir = resolve(rootDir, "apps", "web", "dist", "assets");
 let jsAssets = [];
 let cssAssets = [];
 if (existsSync(assetsDir) && statSync(assetsDir).isDirectory()) {
@@ -38,19 +38,19 @@ if (existsSync(assetsDir) && statSync(assetsDir).isDirectory()) {
   }
 }
 
-const indexHtmlPath = resolve(rootDir, "web", "dist", "index.html");
+const indexHtmlPath = resolve(rootDir, "apps", "web", "dist", "index.html");
 if (existsSync(indexHtmlPath)) {
   const html = readFileSync(indexHtmlPath, "utf8");
   if (!html.includes("/assets/")) {
-    errors.push(`web/dist/index.html has no /assets/ reference: ${indexHtmlPath}`);
+    errors.push(`apps/web/dist/index.html has no /assets/ reference: ${indexHtmlPath}`);
   }
 }
 
-const serverEntryPath = resolve(rootDir, "server", "dist", "index.js");
+const serverEntryPath = resolve(rootDir, "apps", "server", "dist", "index.js");
 if (existsSync(serverEntryPath)) {
   const serverEntry = readFileSync(serverEntryPath, "utf8");
   if (!serverEntry.includes("web") || !serverEntry.includes("dist")) {
-    errors.push(`server/dist/index.js does not appear to include static web/dist hosting logic`);
+    errors.push(`apps/server/dist/index.js does not appear to include static apps/web/dist hosting logic`);
   }
 }
 
@@ -63,6 +63,6 @@ if (errors.length > 0) {
 }
 
 console.log("Release artifact check passed.");
-console.log(`- server: ${resolve(rootDir, "server", "dist", "index.js")}`);
-console.log(`- web: ${resolve(rootDir, "web", "dist", "index.html")}`);
+console.log(`- server: ${resolve(rootDir, "apps", "server", "dist", "index.js")}`);
+console.log(`- web: ${resolve(rootDir, "apps", "web", "dist", "index.html")}`);
 console.log(`- assets: ${jsAssets.length} js, ${cssAssets.length} css`);

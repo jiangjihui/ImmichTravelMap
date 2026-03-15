@@ -8,6 +8,7 @@ const POINT_BASE_INTERVAL_MS = 160;
 const SETTINGS_STORAGE_KEY = "immich-travel-map.settings.v1";
 
 type PlaybackMode = "time" | "point";
+type ConnectionStatus = "checking" | "connected" | "disconnected" | "direct";
 
 type RuntimeSettings = {
   mode: ClientMode;
@@ -48,6 +49,14 @@ function findPointIndexAtOrBeforeTime(points: TravelPoint[], targetTime: number)
   return answer;
 }
 
+function buildHealthCheckUrl(apiBase: string): string {
+  const trimmed = apiBase.trim();
+  if (!trimmed) {
+    return "/api/health";
+  }
+  return `${trimmed.replace(/\/+$/, "")}/api/health`;
+}
+
 function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSettings>): RuntimeSettings {
   if (typeof window === "undefined") {
     return {
@@ -72,9 +81,14 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
     }
 
     const parsed = JSON.parse(raw) as Partial<RuntimeSettings>;
+    const parsedProxyApiBase =
+      typeof parsed.proxyApiBase === "string" && parsed.proxyApiBase.trim().length > 0
+        ? parsed.proxyApiBase
+        : defaults.proxyApiBase;
+
     return {
       mode: parsed.mode === "direct" ? "direct" : "proxy",
-      proxyApiBase: typeof parsed.proxyApiBase === "string" ? parsed.proxyApiBase : defaults.proxyApiBase,
+      proxyApiBase: parsedProxyApiBase,
       directImmichBaseUrl:
         typeof parsed.directImmichBaseUrl === "string" ? parsed.directImmichBaseUrl : defaults.directImmichBaseUrl,
       directImmichApiKey:
@@ -120,6 +134,8 @@ export default function App() {
   const [ultraAggressiveFollow, setUltraAggressiveFollow] = useState(false);
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("time");
   const [playheadIndex, setPlayheadIndex] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("checking");
+  const [connectionHint, setConnectionHint] = useState("");
 
   const client = useMemo(
     () =>
@@ -146,6 +162,53 @@ export default function App() {
     };
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
   }, [mode, proxyApiBaseInput, directAssetUrlTemplateInput, directImmichApiKeyInput, directImmichBaseUrlInput]);
+
+  useEffect(() => {
+    if (mode !== "proxy") {
+      setConnectionStatus("direct");
+      setConnectionHint("直连模式不依赖本地代理服务");
+      return;
+    }
+
+    let active = true;
+    const healthPath = buildHealthCheckUrl(client.mapApiBase);
+
+    const checkConnection = async () => {
+      setConnectionStatus((prev) => (prev === "connected" ? "connected" : "checking"));
+      try {
+        const healthUrl = new URL(healthPath, window.location.origin);
+        const response = await fetch(healthUrl.toString(), { method: "GET" });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = (await response.json().catch(() => null)) as { ok?: boolean } | null;
+        if (payload?.ok === false) {
+          throw new Error("health.ok=false");
+        }
+        if (!active) {
+          return;
+        }
+        setConnectionStatus("connected");
+        setConnectionHint(healthUrl.toString());
+      } catch (err) {
+        if (!active) {
+          return;
+        }
+        setConnectionStatus("disconnected");
+        setConnectionHint(err instanceof Error ? err.message : String(err));
+      }
+    };
+
+    void checkConnection();
+    const timer = window.setInterval(() => {
+      void checkConnection();
+    }, 4000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [client.mapApiBase, mode]);
 
   async function loadPoints(): Promise<void> {
     if (client.configError) {
@@ -227,12 +290,36 @@ export default function App() {
 
   const progressPercent =
     minTime < maxTime ? Math.round(((activeTime - minTime) / (maxTime - minTime)) * 1000) / 10 : 0;
+  const proxyHealthPath = buildHealthCheckUrl(client.mapApiBase);
+  const connectionText =
+    connectionStatus === "connected"
+      ? "已连接"
+      : connectionStatus === "checking"
+        ? "检测中..."
+        : connectionStatus === "direct"
+          ? "直连模式"
+          : "未连接";
+  const connectionClass =
+    connectionStatus === "connected"
+      ? "connected"
+      : connectionStatus === "checking"
+        ? "checking"
+        : connectionStatus === "direct"
+          ? "direct"
+          : "disconnected";
+  const connectionTitle =
+    mode === "proxy"
+      ? `健康检查: ${proxyHealthPath}${connectionHint ? ` | ${connectionHint}` : ""}`
+      : connectionHint;
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="title">
           <h1>Immich Travel Map</h1>
+          <div className={`connection-status ${connectionClass}`} title={connectionTitle}>
+            连接状态：{connectionText}
+          </div>
           <p>支持代理模式与直连模式，按时间重现你的旅行轨迹。</p>
         </div>
         <div className="filters">

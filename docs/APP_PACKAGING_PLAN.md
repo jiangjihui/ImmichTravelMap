@@ -31,7 +31,7 @@
 ```
 
 说明：
-- 当前 `web/`、`server/` 后续建议迁到 `apps/`，先不强制一步到位。
+- 当前已完成到 `apps/web`、`apps/server` 的目录迁移。
 - 优先抽 `shared-types` 和 `track-core`，这是多端复用关键。
 
 ## 3. 打包路线建议
@@ -94,7 +94,7 @@
   - lint
   - typecheck
   - unit/integration test
-  - web/server build
+  - apps/web + apps/server build
 - `tag release`：
   - 构建桌面安装包
   - 签名（证书）

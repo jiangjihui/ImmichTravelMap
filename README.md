@@ -10,8 +10,9 @@
 ├─ packages/
 │  ├─ shared-types/  # 前后端共享类型
 │  └─ track-core/    # 轨迹核心算法（时间解析/去重/抽稀）
-├─ server/   # BFF + 生产环境静态托管
-└─ web/      # React + Vite 前端
+├─ apps/
+│  ├─ server/   # BFF + 生产环境静态托管
+│  └─ web/      # React + Vite 前端
 ```
 
 ## 环境要求
@@ -30,13 +31,13 @@ npm install
 
 ### 后端（必填）
 
-复制 `server/.env.example` 到 `server/.env`：
+复制 `apps/server/.env.example` 到 `apps/server/.env`：
 
 ```env
 IMMICH_BASE_URL=http://localhost:2283
 IMMICH_API_KEY=replace_with_your_api_key
 PORT=8787
-WEB_ORIGIN=http://localhost:5173
+WEB_ORIGIN=http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost
 ```
 
 可选（Immich 页面跳转模板）：
@@ -51,7 +52,7 @@ IMMICH_WEB_ASSET_URL_TEMPLATE=https://your-immich-domain/photos/{assetId}
 
 ### 前端（可选）
 
-复制 `web/.env.example` 到 `web/.env`：
+复制 `apps/web/.env.example` 到 `apps/web/.env`：
 
 ```env
 VITE_API_BASE=http://localhost:8787
@@ -96,8 +97,8 @@ npm run start
 打开：`http://localhost:8787`
 
 说明：
-- `server` 会自动托管 `web/dist`。
-- 若 `web/dist` 不存在，`server` 会退回 API-only 模式。
+- `apps/server` 会自动托管 `apps/web/dist`。
+- 若 `apps/web/dist` 不存在，`apps/server` 会退回 API-only 模式。
 
 ## 快速发布（单服务）
 
@@ -110,7 +111,30 @@ npm run start
 
 说明：
 - `release:build` 会先构建前后端，再执行产物检查。
-- 检查内容包括：`server/dist/index.js`、`web/dist/index.html`、`web/dist/assets` 以及基础静态资源完整性。
+- 检查内容包括：`apps/server/dist/index.js`、`apps/web/dist/index.html`、`apps/web/dist/assets` 以及基础静态资源完整性。
+
+## 3) Desktop 模式（Tauri）
+
+首次使用前需要：
+- 安装 Rust 工具链（`rustup` + MSVC build tools）
+- 安装 Tauri CLI 依赖（已在 `apps/desktop` 的 `devDependencies` 中声明）
+
+开发运行：
+
+```bash
+npm install
+npm run dev:desktop
+```
+
+打包桌面应用：
+
+```bash
+npm run build:desktop
+```
+
+说明：
+- Desktop 会在启动时拉起本地 sidecar：`node apps/server/dist/index.js`。
+- 前端在 Tauri 环境下默认访问 `http://127.0.0.1:8787`，不需要额外设置 `VITE_API_BASE`。
 
 ## 页面功能
 
@@ -138,9 +162,11 @@ npm run start
 
 - `npm run dev:server`：后端开发
 - `npm run dev:web`：前端开发
+- `npm run dev:desktop`：桌面端开发运行（Tauri）
 - `npm run build:packages`：构建共享包（shared-types + track-core）
 - `npm run build:web`：构建前端
 - `npm run build:server`：构建后端
+- `npm run build:desktop`：构建桌面应用（Tauri）
 - `npm run build`：一键构建（packages + web + server）
 - `npm run start`：单服务启动（生产模式）
 - `npm run release:check`：检查发布产物完整性

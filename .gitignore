@@ -7,6 +7,7 @@ node_modules/
 dist/
 **/dist/
 **/*.tsbuildinfo
+**/src-tauri/target/
 
 # vite/cache
 **/.vite/
