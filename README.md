@@ -219,3 +219,44 @@ npm run build:mobile
 - `npm run release:check`：检查发布产物完整性
 - `npm run release:build`：构建并检查发布产物
 - `npm run release:start`：构建检查后启动单服务
+
+
+## Android APK 打包
+
+在仓库根目录先同步移动端资源：
+
+```bash
+npm --prefix apps/mobile run sync
+```
+
+然后构建 Debug APK（可直接安装）：
+
+```powershell
+$env:JAVA_HOME="D:\Program\jdk-17.0.12+7"
+$env:ANDROID_HOME="H:\ProgramData\Android\SDK"
+$env:ANDROID_SDK_ROOT="H:\ProgramData\Android\SDK"
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+
+cd apps/mobile/android
+.\gradlew.bat assembleDebug
+```
+
+产物路径：
+
+- `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`
+
+构建 Release APK（未签名）：
+
+```powershell
+cd apps/mobile/android
+.\gradlew.bat assembleRelease
+```
+
+产物路径：
+
+- `apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk`
+
+说明：
+
+- `npm run release:build` 只会构建并检查 Web/Server 产物，不会生成 APK。
+- 需要上架或分发时，请在 Android 工程中配置 keystore 后再签名 Release 包。

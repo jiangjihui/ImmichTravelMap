@@ -3,6 +3,7 @@ import maplibreglWorkerUrl from "maplibre-gl/dist/maplibre-gl-csp-worker.js?url"
 import type { GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useMemo, useEffect, useRef } from "react";
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { TravelPoint } from "./types";
 
 type MapViewProps = {
@@ -90,11 +91,104 @@ function toThumbnailUrl(apiBase: string, point: TravelPoint): string | null {
   return apiBase ? `${apiBase}${point.thumbnailPath}` : point.thumbnailPath;
 }
 
+function isNativeCapacitorRuntime(): boolean {
+  try {
+    if (typeof Capacitor.getPlatform === "function" && Capacitor.getPlatform() !== "web") {
+      return true;
+    }
+    if (typeof Capacitor.isNativePlatform === "function" && Capacitor.isNativePlatform()) {
+      return true;
+    }
+  } catch {
+    // noop
+  }
+  return false;
+}
+
+function resolveContentType(headers: unknown): string {
+  if (!headers || typeof headers !== "object") {
+    return "image/jpeg";
+  }
+  const entries = Object.entries(headers as Record<string, unknown>);
+  const hit = entries.find(([key]) => key.toLowerCase() === "content-type");
+  return typeof hit?.[1] === "string" && hit[1].trim().length > 0 ? hit[1] : "image/jpeg";
+}
+
+function toBlobUrlFromCapacitorData(data: unknown, contentType: string): string | null {
+  if (!data) {
+    return null;
+  }
+
+  if (data instanceof Blob) {
+    return URL.createObjectURL(data);
+  }
+
+  if (data instanceof ArrayBuffer) {
+    return URL.createObjectURL(new Blob([data], { type: contentType }));
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    const view = data as ArrayBufferView;
+    const bytes = new Uint8Array(view.byteLength);
+    bytes.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+    return URL.createObjectURL(new Blob([bytes], { type: contentType }));
+  }
+
+  if (typeof data === "string") {
+    const normalized = data.trim();
+    if (!normalized) {
+      return null;
+    }
+    if (normalized.startsWith("data:")) {
+      return normalized;
+    }
+    try {
+      const binary = atob(normalized);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return URL.createObjectURL(new Blob([bytes], { type: contentType }));
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function revokeIfBlobUrl(url: string | null): void {
+  if (url && url.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function fetchDirectThumbnail(
   assetId: string,
   auth: { baseUrl: string; apiKey: string }
 ): Promise<string | null> {
-  const response = await fetch(`${trimTrailingSlash(auth.baseUrl)}/api/assets/${assetId}/thumbnail?size=preview`, {
+  const url = `${trimTrailingSlash(auth.baseUrl)}/api/assets/${assetId}/thumbnail?size=preview`;
+
+  if (isNativeCapacitorRuntime()) {
+    try {
+      const response = await CapacitorHttp.get({
+        url,
+        headers: {
+          "x-api-key": auth.apiKey
+        },
+        responseType: "arraybuffer"
+      });
+      const status = response.status ?? 0;
+      if (status < 200 || status >= 300) {
+        return null;
+      }
+      return toBlobUrlFromCapacitorData(response.data, resolveContentType(response.headers));
+    } catch {
+      return null;
+    }
+  }
+
+  const response = await fetch(url, {
     headers: {
       "x-api-key": auth.apiKey
     }
@@ -268,7 +362,7 @@ export function MapView({
         const previewUrl = props.image?.trim() ? props.image : "";
 
         if (popupObjectUrlRef.current) {
-          URL.revokeObjectURL(popupObjectUrlRef.current);
+          revokeIfBlobUrl(popupObjectUrlRef.current);
           popupObjectUrlRef.current = null;
         }
 
@@ -324,7 +418,7 @@ export function MapView({
         if (previewUrl) {
           renderImage(previewUrl);
         } else {
-          renderHint("预览加载中...");
+          renderHint("\u9884\u89c8\u52a0\u8f7d\u4e2d...");
         }
 
         const timeLine = document.createElement("div");
@@ -343,7 +437,7 @@ export function MapView({
 
         if (props.viewUrl) {
           const linkHint = document.createElement("div");
-          linkHint.textContent = "点击图片在 Immich 中查看";
+          linkHint.textContent = "\u70b9\u51fb\u56fe\u7247\u5728 Immich \u4e2d\u67e5\u770b";
           linkHint.style.marginTop = "4px";
           linkHint.style.fontSize = "12px";
           linkHint.style.color = "#1b4bc4";
@@ -361,21 +455,21 @@ export function MapView({
           void fetchDirectThumbnail(props.assetId, thumbnailAuthRef.current)
             .then((objectUrl) => {
               if (!objectUrl) {
-                renderHint("无法加载预览图");
+                renderHint("\u65e0\u6cd5\u52a0\u8f7d\u9884\u89c8\u56fe");
                 return;
               }
               if (popupRef.current !== popup) {
-                URL.revokeObjectURL(objectUrl);
+                revokeIfBlobUrl(objectUrl);
                 return;
               }
               popupObjectUrlRef.current = objectUrl;
               renderImage(objectUrl);
             })
             .catch(() => {
-              renderHint("无法加载预览图");
+              renderHint("\u65e0\u6cd5\u52a0\u8f7d\u9884\u89c8\u56fe");
             });
         } else if (!previewUrl) {
-          renderHint("无预览图");
+          renderHint("\u65e0\u9884\u89c8\u56fe");
         }
       });
     });
@@ -383,7 +477,7 @@ export function MapView({
     return () => {
       popupRef.current?.remove();
       if (popupObjectUrlRef.current) {
-        URL.revokeObjectURL(popupObjectUrlRef.current);
+        revokeIfBlobUrl(popupObjectUrlRef.current);
         popupObjectUrlRef.current = null;
       }
       map.remove();
