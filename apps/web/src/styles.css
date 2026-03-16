@@ -313,7 +313,8 @@ button:disabled {
     width: 100%;
   }
 
-  .app.compact-layout .filters .primary {
+  .app.compact-layout .filters .primary,
+  .app.compact-layout .filters .reset {
     width: 100%;
   }
 

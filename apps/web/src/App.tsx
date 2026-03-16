@@ -286,6 +286,20 @@ export default function App() {
     }
   }
 
+  function resetView(): void {
+    setIsPlaying(false);
+    setError(null);
+    setSummary(null);
+    setPoints([]);
+    setActiveTime(0);
+    setPlayheadIndex(0);
+    setSpeed(1);
+    setPlaybackMode("time");
+    setFollowCurrent(true);
+    setFollowIntensity(72);
+    setUltraAggressiveFollow(false);
+  }
+
   useEffect(() => {
     if (client.mode === "direct" && client.configError) {
       return;
@@ -413,6 +427,15 @@ export default function App() {
               >
                 {loading ? "加载中..." : "加载轨迹"}
               </button>
+
+              <button
+                className="secondary reset"
+                onClick={resetView}
+                disabled={loading}
+                title="清空当前轨迹和播放状态，不修改连接设置"
+              >
+                重置界面
+              </button>
             </div>
           )}
         </div>
@@ -489,14 +512,25 @@ export default function App() {
             </label>
 
             {useCompactHeader ? (
-              <button
-                className="primary"
-                onClick={() => void loadPoints()}
-                disabled={loading || client.configError !== null}
-                title="按当前配置和起止时间重新加载轨迹"
-              >
-                {loading ? "加载中..." : "加载轨迹"}
-              </button>
+              <>
+                <button
+                  className="primary"
+                  onClick={() => void loadPoints()}
+                  disabled={loading || client.configError !== null}
+                  title="按当前配置和起止时间重新加载轨迹"
+                >
+                  {loading ? "加载中..." : "加载轨迹"}
+                </button>
+
+                <button
+                  className="secondary reset"
+                  onClick={resetView}
+                  disabled={loading}
+                  title="清空当前轨迹和播放状态，不修改连接设置"
+                >
+                  重置界面
+                </button>
+              </>
             ) : null}
           </div>
         ) : null}
