@@ -6,6 +6,9 @@ import { type TravelPoint, type TravelResponse } from "./types";
 const PLAYBACK_SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
 const POINT_BASE_INTERVAL_MS = 160;
 const SETTINGS_STORAGE_KEY = "immich-travel-map.settings.v1";
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SEGMENT_TRIGGER_DAYS = 45;
+const SEGMENT_DAYS = 7;
 
 type PlaybackMode = "time" | "point";
 type ConnectionStatus = "checking" | "connected" | "disconnected" | "direct";
@@ -80,6 +83,72 @@ function buildHealthCheckUrl(apiBase: string): string {
   return `${trimmed.replace(/\/+$/, "")}/api/health`;
 }
 
+function splitRangeIntoSegments(startMs: number, endMs: number, segmentDays: number): Array<{ startIso: string; endIso: string }> {
+  if (endMs <= startMs) {
+    return [];
+  }
+
+  const segmentMs = Math.max(1, Math.floor(segmentDays * DAY_MS));
+  const segments: Array<{ startIso: string; endIso: string }> = [];
+  let cursor = startMs;
+
+  while (cursor < endMs) {
+    const segmentEnd = Math.min(cursor + segmentMs, endMs);
+    segments.push({
+      startIso: new Date(cursor).toISOString(),
+      endIso: new Date(segmentEnd).toISOString()
+    });
+    cursor = segmentEnd;
+  }
+
+  return segments;
+}
+
+function mergeSegmentResponses(startIso: string, endIso: string, responses: TravelResponse[]): TravelResponse {
+  if (responses.length === 0) {
+    return {
+      summary: {
+        start: startIso,
+        end: endIso,
+        rawAssetCount: 0,
+        geoPointCount: 0,
+        simplifiedPointCount: 0
+      },
+      points: []
+    };
+  }
+
+  const mergedMap = new Map<string, TravelPoint>();
+  let rawAssetCount = 0;
+  let geoPointCount = 0;
+
+  for (const response of responses) {
+    rawAssetCount += response.summary.rawAssetCount;
+    geoPointCount += response.summary.geoPointCount;
+    for (const point of response.points) {
+      const key = point.assetId + "|" + point.timestamp;
+      if (!mergedMap.has(key)) {
+        mergedMap.set(key, point);
+      }
+    }
+  }
+
+  const points = Array.from(mergedMap.values()).sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
+  return {
+    summary: {
+      start: startIso,
+      end: endIso,
+      rawAssetCount,
+      geoPointCount,
+      simplifiedPointCount: points.length
+    },
+    points
+  };
+}
+
 function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSettings>): RuntimeSettings {
   const defaultMode = resolveDefaultMode(defaults.proxyApiBase);
 
@@ -152,6 +221,9 @@ export default function App() {
   const [directImmichApiKeyInput, setDirectImmichApiKeyInput] = useState(initialSettings.directImmichApiKey);
   const [directAssetUrlTemplateInput, setDirectAssetUrlTemplateInput] = useState(initialSettings.directAssetUrlTemplate);
   const [loading, setLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState<{ current: number; total: number } | null>(null);
+  const [showProxyRetry, setShowProxyRetry] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<TravelResponse["summary"] | null>(null);
   const [points, setPoints] = useState<TravelPoint[]>([]);
@@ -260,35 +332,136 @@ export default function App() {
     };
   }, [client.mapApiBase, mode]);
 
-  async function loadPoints(): Promise<void> {
-    if (client.configError) {
-      setError(client.configError);
-      return;
-    }
+  async function loadPoints(targetMode: ClientMode = mode, autoFallback = true): Promise<void> {
+    const buildClientForMode = (nextMode: ClientMode) =>
+      createTravelClient({
+        mode: nextMode,
+        proxyApiBase: proxyApiBaseInput,
+        directImmichBaseUrl: directImmichBaseUrlInput,
+        directImmichApiKey: directImmichApiKeyInput,
+        directAssetUrlTemplate: directAssetUrlTemplateInput
+      });
 
-    setLoading(true);
-    setError(null);
-    setIsPlaying(false);
-    try {
-      const startIso = new Date(startInput).toISOString();
-      const endIso = new Date(endInput).toISOString();
-      const data = await client.fetchTravelPoints(startIso, endIso);
+    const fetchTravelPointsWithStrategy = async (nextMode: ClientMode, startIso: string, endIso: string) => {
+      const activeClient = buildClientForMode(nextMode);
+      if (activeClient.configError) {
+        throw new Error(activeClient.configError);
+      }
+
+      const startMs = new Date(startIso).getTime();
+      const endMs = new Date(endIso).getTime();
+      const spanDays = Math.max(0, (endMs - startMs) / DAY_MS);
+      if (spanDays <= SEGMENT_TRIGGER_DAYS) {
+        setLoadingProgress(null);
+        return activeClient.fetchTravelPoints(startIso, endIso);
+      }
+
+      const segments = splitRangeIntoSegments(startMs, endMs, SEGMENT_DAYS);
+      if (segments.length === 0) {
+        setLoadingProgress(null);
+        return activeClient.fetchTravelPoints(startIso, endIso);
+      }
+
+      const responses: TravelResponse[] = [];
+      for (let index = 0; index < segments.length; index += 1) {
+        const segment = segments[index];
+        setLoadingProgress({ current: index + 1, total: segments.length });
+        const response = await activeClient.fetchTravelPoints(segment.startIso, segment.endIso);
+        responses.push(response);
+      }
+
+      return mergeSegmentResponses(startIso, endIso, responses);
+    };
+
+    const applyLoadedData = (data: TravelResponse) => {
       setPoints(data.points);
       setSummary(data.summary);
       if (data.points.length > 0) {
         setActiveTime(new Date(data.points[0].timestamp).getTime());
         setPlayheadIndex(0);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    };
+
+    setLoading(true);
+    setMessage(null);
+    setError(null);
+    setShowProxyRetry(false);
+    setIsPlaying(false);
+    setLoadingProgress(null);
+
+    const startDate = new Date(startInput);
+    const endDate = new Date(endInput);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      setLoading(false);
+      setError("请输入有效的开始和结束时间");
+      return;
+    }
+
+    if (startDate.getTime() >= endDate.getTime()) {
+      setLoading(false);
+      setError("结束时间必须晚于开始时间");
+      return;
+    }
+
+    const startIso = startDate.toISOString();
+    const endIso = endDate.toISOString();
+
+    try {
+      const data = await fetchTravelPointsWithStrategy(targetMode, startIso, endIso);
+      applyLoadedData(data);
+      if (targetMode !== mode) {
+        setMode(targetMode);
+      }
+    } catch (primaryErr) {
+      const primaryMessage = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+      if (targetMode !== "direct" || !autoFallback) {
+        setError(primaryMessage);
+        if (targetMode === "direct") {
+          setShowProxyRetry(true);
+        }
+        return;
+      }
+
+      try {
+        const proxyData = await fetchTravelPointsWithStrategy("proxy", startIso, endIso);
+        applyLoadedData(proxyData);
+        setMode("proxy");
+        setMessage("直连失败，已自动切换到代理模式：" + primaryMessage);
+      } catch (proxyErr) {
+        const proxyMessage = proxyErr instanceof Error ? proxyErr.message : String(proxyErr);
+        setShowProxyRetry(true);
+        setError("直连失败，代理回退也失败。直连：" + primaryMessage + "；代理：" + proxyMessage);
+      }
     } finally {
       setLoading(false);
+      setLoadingProgress(null);
     }
+  }
+
+  function applyQuickPreset(preset: "7d" | "30d" | "month" | "year"): void {
+    const end = new Date();
+    const start = new Date(end);
+
+    if (preset === "7d") {
+      start.setDate(end.getDate() - 7);
+    } else if (preset === "30d") {
+      start.setDate(end.getDate() - 30);
+    } else if (preset === "month") {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+    } else {
+      start.setMonth(0, 1);
+      start.setHours(0, 0, 0, 0);
+    }
+
+    setStartInput(toDateTimeLocalValue(start));
+    setEndInput(toDateTimeLocalValue(end));
   }
 
   function resetView(): void {
     setIsPlaying(false);
     setError(null);
+    setMessage(null);
     setSummary(null);
     setPoints([]);
     setActiveTime(0);
@@ -298,6 +471,8 @@ export default function App() {
     setFollowCurrent(true);
     setFollowIntensity(72);
     setUltraAggressiveFollow(false);
+    setShowProxyRetry(false);
+    setLoadingProgress(null);
   }
 
   useEffect(() => {
@@ -384,6 +559,7 @@ export default function App() {
       ? `健康检查: ${proxyHealthPath}${connectionHint ? ` | ${connectionHint}` : ""}`
       : connectionHint;
   const showConfigPanel = !useCompactHeader || configExpanded;
+  const loadButtonLabel = loadingProgress ? ("加载中 " + loadingProgress.current + "/" + loadingProgress.total) : "加载轨迹";
 
   return (
     <div className={`app ${useCompactHeader ? "compact-layout" : ""} ${showConfigPanel ? "config-open" : "config-closed"}`}>
@@ -425,7 +601,7 @@ export default function App() {
                 disabled={loading || client.configError !== null}
                 title="按当前配置和起止时间重新加载轨迹"
               >
-                {loading ? "加载中..." : "加载轨迹"}
+                {loading ? loadButtonLabel : "加载轨迹"}
               </button>
 
               <button
@@ -511,6 +687,22 @@ export default function App() {
               <input type="datetime-local" value={endInput} onChange={(event) => setEndInput(event.target.value)} />
             </label>
 
+            <div className="quick-date-presets" title="快速选择时间范围">
+              <span>快捷时间</span>
+              <button className="secondary" type="button" onClick={() => applyQuickPreset("7d")} disabled={loading}>
+                近7天
+              </button>
+              <button className="secondary" type="button" onClick={() => applyQuickPreset("30d")} disabled={loading}>
+                近30天
+              </button>
+              <button className="secondary" type="button" onClick={() => applyQuickPreset("month")} disabled={loading}>
+                本月
+              </button>
+              <button className="secondary" type="button" onClick={() => applyQuickPreset("year")} disabled={loading}>
+                今年
+              </button>
+            </div>
+
             {useCompactHeader ? (
               <>
                 <button
@@ -519,7 +711,7 @@ export default function App() {
                   disabled={loading || client.configError !== null}
                   title="按当前配置和起止时间重新加载轨迹"
                 >
-                  {loading ? "加载中..." : "加载轨迹"}
+                  {loading ? loadButtonLabel : "加载轨迹"}
                 </button>
 
                 <button
@@ -652,8 +844,15 @@ export default function App() {
           ) : (
             <span>尚未加载数据</span>
           )}
+          {loadingProgress ? <span>{"分段加载：" + loadingProgress.current + "/" + loadingProgress.total}</span> : null}
+          {message ? <span>{message}</span> : null}
           {error ? <span className="error">{error}</span> : null}
           {client.configError ? <span className="error">{client.configError}</span> : null}
+          {showProxyRetry ? (
+            <button className="secondary retry" onClick={() => void loadPoints("proxy", false)} disabled={loading} type="button">
+              使用代理重试
+            </button>
+          ) : null}
         </div>
       </section>
     </div>
