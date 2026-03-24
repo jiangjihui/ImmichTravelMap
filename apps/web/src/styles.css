@@ -337,6 +337,12 @@ button:disabled {
   padding: 0 10px;
 }
 
+.history-today-hint {
+  width: 100%;
+  font-size: 12px;
+  color: #3e4f68;
+}
+
 .retry {
   min-height: 28px;
   padding: 0 10px;

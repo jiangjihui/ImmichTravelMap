@@ -9,12 +9,16 @@ const SETTINGS_STORAGE_KEY = "immich-travel-map.settings.v1";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEGMENT_TRIGGER_DAYS = 45;
 const SEGMENT_DAYS = 7;
+const HISTORY_TODAY_YEARS = 15;
+const HISTORY_TODAY_CONCURRENCY = 3;
 
 type PlaybackMode = "time" | "point";
 type ConnectionStatus = "checking" | "connected" | "disconnected" | "direct";
+type QueryMode = "time_range" | "history_today";
 
 type RuntimeSettings = {
   mode: ClientMode;
+  queryMode: QueryMode;
   proxyApiBase: string;
   directImmichBaseUrl: string;
   directImmichApiKey: string;
@@ -149,12 +153,52 @@ function mergeSegmentResponses(startIso: string, endIso: string, responses: Trav
   };
 }
 
+
+type HistoryTodayRange = {
+  year: number;
+  startIso: string;
+  endIso: string;
+};
+
+function buildHistoryTodayRanges(referenceDate: Date, yearsBack: number): HistoryTodayRange[] {
+  const month = referenceDate.getMonth();
+  const day = referenceDate.getDate();
+  const currentYear = referenceDate.getFullYear();
+  const startYear = currentYear - Math.max(1, yearsBack) + 1;
+  const ranges: HistoryTodayRange[] = [];
+
+  for (let year = startYear; year <= currentYear; year += 1) {
+    const startLocal = new Date(year, month, day, 0, 0, 0, 0);
+    const isSameDay = startLocal.getFullYear() === year && startLocal.getMonth() === month && startLocal.getDate() === day;
+    if (!isSameDay) {
+      continue;
+    }
+
+    const endLocal = new Date(year, month, day + 1, 0, 0, 0, 0);
+    ranges.push({
+      year,
+      startIso: startLocal.toISOString(),
+      endIso: endLocal.toISOString()
+    });
+  }
+
+  return ranges;
+}
+
+function formatHistoryTodayFailureMessage(failedYears: number[]): string {
+  if (failedYears.length === 0) {
+    return "";
+  }
+  return "历史上今天：以下年份加载失败，已展示其余年份结果：" + failedYears.join(", ");
+}
 function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSettings>): RuntimeSettings {
   const defaultMode = resolveDefaultMode(defaults.proxyApiBase);
+  const defaultQueryMode: QueryMode = "time_range";
 
   if (typeof window === "undefined") {
     return {
       mode: defaultMode,
+      queryMode: defaultQueryMode,
       proxyApiBase: defaults.proxyApiBase,
       directImmichBaseUrl: defaults.directImmichBaseUrl,
       directImmichApiKey: defaults.directImmichApiKey,
@@ -167,6 +211,7 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
     if (!raw) {
       return {
         mode: defaultMode,
+        queryMode: defaultQueryMode,
         proxyApiBase: defaults.proxyApiBase,
         directImmichBaseUrl: defaults.directImmichBaseUrl,
         directImmichApiKey: defaults.directImmichApiKey,
@@ -183,9 +228,11 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
     const parsedMode = parsed.mode === "direct" ? "direct" : "proxy";
     const resolvedMode =
       parsedMode === "proxy" && isMobileShellRuntime() && parsedProxyApiBase.trim().length === 0 ? "direct" : parsedMode;
+    const parsedQueryMode = parsed.queryMode === "history_today" ? "history_today" : "time_range";
 
     return {
       mode: resolvedMode,
+      queryMode: parsedQueryMode,
       proxyApiBase: parsedProxyApiBase,
       directImmichBaseUrl:
         typeof parsed.directImmichBaseUrl === "string" ? parsed.directImmichBaseUrl : defaults.directImmichBaseUrl,
@@ -199,6 +246,7 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
   } catch {
     return {
       mode: defaultMode,
+      queryMode: defaultQueryMode,
       proxyApiBase: defaults.proxyApiBase,
       directImmichBaseUrl: defaults.directImmichBaseUrl,
       directImmichApiKey: defaults.directImmichApiKey,
@@ -206,7 +254,6 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
     };
   }
 }
-
 export default function App() {
   const now = useMemo(() => new Date(), []);
   const defaultStart = useMemo(() => new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), [now]);
@@ -216,6 +263,7 @@ export default function App() {
   const [startInput, setStartInput] = useState<string>(toDateTimeLocalValue(defaultStart));
   const [endInput, setEndInput] = useState<string>(toDateTimeLocalValue(now));
   const [mode, setMode] = useState<ClientMode>(initialSettings.mode);
+  const [queryMode, setQueryMode] = useState<QueryMode>(initialSettings.queryMode);
   const [proxyApiBaseInput, setProxyApiBaseInput] = useState(initialSettings.proxyApiBase);
   const [directImmichBaseUrlInput, setDirectImmichBaseUrlInput] = useState(initialSettings.directImmichBaseUrl);
   const [directImmichApiKeyInput, setDirectImmichApiKeyInput] = useState(initialSettings.directImmichApiKey);
@@ -258,13 +306,14 @@ export default function App() {
   useEffect(() => {
     const payload: RuntimeSettings = {
       mode,
+      queryMode,
       proxyApiBase: proxyApiBaseInput,
       directImmichBaseUrl: directImmichBaseUrlInput,
       directImmichApiKey: directImmichApiKeyInput,
       directAssetUrlTemplate: directAssetUrlTemplateInput
     };
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
-  }, [mode, proxyApiBaseInput, directAssetUrlTemplateInput, directImmichApiKeyInput, directImmichBaseUrlInput]);
+  }, [mode, queryMode, proxyApiBaseInput, directAssetUrlTemplateInput, directImmichApiKeyInput, directImmichBaseUrlInput]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -332,7 +381,11 @@ export default function App() {
     };
   }, [client.mapApiBase, mode]);
 
-  async function loadPoints(targetMode: ClientMode = mode, autoFallback = true): Promise<void> {
+  async function loadPoints(
+    targetMode: ClientMode = mode,
+    autoFallback = true,
+    targetQueryMode: QueryMode = queryMode
+  ): Promise<void> {
     const buildClientForMode = (nextMode: ClientMode) =>
       createTravelClient({
         mode: nextMode,
@@ -342,10 +395,65 @@ export default function App() {
         directAssetUrlTemplate: directAssetUrlTemplateInput
       });
 
-    const fetchTravelPointsWithStrategy = async (nextMode: ClientMode, startIso: string, endIso: string) => {
+    const fetchTravelPointsWithStrategy = async (
+      nextMode: ClientMode,
+      nextQueryMode: QueryMode,
+      startIso?: string,
+      endIso?: string
+    ): Promise<{ data: TravelResponse; failedYears: number[] }> => {
       const activeClient = buildClientForMode(nextMode);
       if (activeClient.configError) {
         throw new Error(activeClient.configError);
+      }
+
+      if (nextQueryMode === "history_today") {
+        const ranges = buildHistoryTodayRanges(new Date(), HISTORY_TODAY_YEARS);
+        if (ranges.length === 0) {
+          const empty = mergeSegmentResponses(new Date().toISOString(), new Date().toISOString(), []);
+          return { data: empty, failedYears: [] };
+        }
+
+        setLoadingProgress({ current: 0, total: ranges.length });
+        let nextIndex = 0;
+        let completed = 0;
+        let lastError = "";
+        const responses: TravelResponse[] = [];
+        const failedYears: number[] = [];
+
+        const worker = async () => {
+          while (nextIndex < ranges.length) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+            const range = ranges[currentIndex];
+            try {
+              const response = await activeClient.fetchTravelPoints(range.startIso, range.endIso);
+              responses.push(response);
+            } catch (error) {
+              failedYears.push(range.year);
+              lastError = error instanceof Error ? error.message : String(error);
+            } finally {
+              completed += 1;
+              setLoadingProgress({ current: completed, total: ranges.length });
+            }
+          }
+        };
+
+        const workerCount = Math.min(HISTORY_TODAY_CONCURRENCY, ranges.length);
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
+        failedYears.sort((a, b) => a - b);
+
+        if (responses.length === 0) {
+          throw new Error(lastError || "历史上今天加载失败");
+        }
+
+        return {
+          data: mergeSegmentResponses(ranges[0].startIso, ranges[ranges.length - 1].endIso, responses),
+          failedYears
+        };
+      }
+
+      if (!startIso || !endIso) {
+        throw new Error("缺少时间范围参数");
       }
 
       const startMs = new Date(startIso).getTime();
@@ -353,13 +461,13 @@ export default function App() {
       const spanDays = Math.max(0, (endMs - startMs) / DAY_MS);
       if (spanDays <= SEGMENT_TRIGGER_DAYS) {
         setLoadingProgress(null);
-        return activeClient.fetchTravelPoints(startIso, endIso);
+        return { data: await activeClient.fetchTravelPoints(startIso, endIso), failedYears: [] };
       }
 
       const segments = splitRangeIntoSegments(startMs, endMs, SEGMENT_DAYS);
       if (segments.length === 0) {
         setLoadingProgress(null);
-        return activeClient.fetchTravelPoints(startIso, endIso);
+        return { data: await activeClient.fetchTravelPoints(startIso, endIso), failedYears: [] };
       }
 
       const responses: TravelResponse[] = [];
@@ -370,7 +478,7 @@ export default function App() {
         responses.push(response);
       }
 
-      return mergeSegmentResponses(startIso, endIso, responses);
+      return { data: mergeSegmentResponses(startIso, endIso, responses), failedYears: [] };
     };
 
     const applyLoadedData = (data: TravelResponse) => {
@@ -389,28 +497,38 @@ export default function App() {
     setIsPlaying(false);
     setLoadingProgress(null);
 
-    const startDate = new Date(startInput);
-    const endDate = new Date(endInput);
-    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-      setLoading(false);
-      setError("请输入有效的开始和结束时间");
-      return;
-    }
+    let startIso: string | undefined;
+    let endIso: string | undefined;
+    if (targetQueryMode === "time_range") {
+      const startDate = new Date(startInput);
+      const endDate = new Date(endInput);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        setLoading(false);
+        setError("请输入有效的开始和结束时间");
+        return;
+      }
 
-    if (startDate.getTime() >= endDate.getTime()) {
-      setLoading(false);
-      setError("结束时间必须晚于开始时间");
-      return;
-    }
+      if (startDate.getTime() >= endDate.getTime()) {
+        setLoading(false);
+        setError("结束时间必须晚于开始时间");
+        return;
+      }
 
-    const startIso = startDate.toISOString();
-    const endIso = endDate.toISOString();
+      startIso = startDate.toISOString();
+      endIso = endDate.toISOString();
+    }
 
     try {
-      const data = await fetchTravelPointsWithStrategy(targetMode, startIso, endIso);
-      applyLoadedData(data);
+      const result = await fetchTravelPointsWithStrategy(targetMode, targetQueryMode, startIso, endIso);
+      applyLoadedData(result.data);
       if (targetMode !== mode) {
         setMode(targetMode);
+      }
+      if (targetQueryMode !== queryMode) {
+        setQueryMode(targetQueryMode);
+      }
+      if (targetQueryMode === "history_today" && result.failedYears.length > 0) {
+        setMessage(formatHistoryTodayFailureMessage(result.failedYears));
       }
     } catch (primaryErr) {
       const primaryMessage = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
@@ -423,10 +541,17 @@ export default function App() {
       }
 
       try {
-        const proxyData = await fetchTravelPointsWithStrategy("proxy", startIso, endIso);
-        applyLoadedData(proxyData);
+        const proxyResult = await fetchTravelPointsWithStrategy("proxy", targetQueryMode, startIso, endIso);
+        applyLoadedData(proxyResult.data);
         setMode("proxy");
-        setMessage("直连失败，已自动切换到代理模式：" + primaryMessage);
+        if (targetQueryMode !== queryMode) {
+          setQueryMode(targetQueryMode);
+        }
+        const fallbackMessages: string[] = ["直连失败，已自动切换到代理模式：" + primaryMessage];
+        if (targetQueryMode === "history_today" && proxyResult.failedYears.length > 0) {
+          fallbackMessages.push(formatHistoryTodayFailureMessage(proxyResult.failedYears));
+        }
+        setMessage(fallbackMessages.join("；"));
       } catch (proxyErr) {
         const proxyMessage = proxyErr instanceof Error ? proxyErr.message : String(proxyErr);
         setShowProxyRetry(true);
@@ -438,6 +563,12 @@ export default function App() {
     }
   }
 
+  function handleQueryModeChange(nextQueryMode: QueryMode): void {
+    setQueryMode(nextQueryMode);
+    if (nextQueryMode === "history_today") {
+      void loadPoints(mode, true, nextQueryMode);
+    }
+  }
   function applyQuickPreset(preset: "7d" | "30d" | "month" | "year"): void {
     const end = new Date();
     const start = new Date(end);
@@ -678,31 +809,57 @@ export default function App() {
               </>
             )}
 
+            <label title="查询模式：时间范围或历史上今天">
+              查询模式
+              <select
+                value={queryMode}
+                onChange={(event) => handleQueryModeChange(event.target.value as QueryMode)}
+                disabled={loading}
+                title="查询模式：时间范围或历史上今天"
+              >
+                <option value="time_range">时间范围</option>
+                <option value="history_today">历史上今天</option>
+              </select>
+            </label>
+
             <label title="设置轨迹查询的开始时间">
               起始时间
-              <input type="datetime-local" value={startInput} onChange={(event) => setStartInput(event.target.value)} />
+              <input
+                type="datetime-local"
+                value={startInput}
+                onChange={(event) => setStartInput(event.target.value)}
+                disabled={loading || queryMode === "history_today"}
+              />
             </label>
             <label title="设置轨迹查询的结束时间">
               结束时间
-              <input type="datetime-local" value={endInput} onChange={(event) => setEndInput(event.target.value)} />
+              <input
+                type="datetime-local"
+                value={endInput}
+                onChange={(event) => setEndInput(event.target.value)}
+                disabled={loading || queryMode === "history_today"}
+              />
             </label>
 
             <div className="quick-date-presets" title="快速选择时间范围">
               <span>快捷时间</span>
-              <button className="secondary" type="button" onClick={() => applyQuickPreset("7d")} disabled={loading}>
+              <button className="secondary" type="button" onClick={() => applyQuickPreset("7d")} disabled={loading || queryMode === "history_today"}>
                 近7天
               </button>
-              <button className="secondary" type="button" onClick={() => applyQuickPreset("30d")} disabled={loading}>
+              <button className="secondary" type="button" onClick={() => applyQuickPreset("30d")} disabled={loading || queryMode === "history_today"}>
                 近30天
               </button>
-              <button className="secondary" type="button" onClick={() => applyQuickPreset("month")} disabled={loading}>
+              <button className="secondary" type="button" onClick={() => applyQuickPreset("month")} disabled={loading || queryMode === "history_today"}>
                 本月
               </button>
-              <button className="secondary" type="button" onClick={() => applyQuickPreset("year")} disabled={loading}>
+              <button className="secondary" type="button" onClick={() => applyQuickPreset("year")} disabled={loading || queryMode === "history_today"}>
                 今年
               </button>
             </div>
 
+            {queryMode === "history_today" ? (
+              <span className="history-today-hint">历史上今天模式：按本地时区同月同日回溯近15年，2月29日在非闰年会自动跳过。</span>
+            ) : null}
             {useCompactHeader ? (
               <>
                 <button
@@ -844,7 +1001,7 @@ export default function App() {
           ) : (
             <span>尚未加载数据</span>
           )}
-          {loadingProgress ? <span>{"分段加载：" + loadingProgress.current + "/" + loadingProgress.total}</span> : null}
+          {loadingProgress ? <span>{(queryMode === "history_today" ? "年份加载：" : "分段加载：") + loadingProgress.current + "/" + loadingProgress.total}</span> : null}
           {message ? <span>{message}</span> : null}
           {error ? <span className="error">{error}</span> : null}
           {client.configError ? <span className="error">{client.configError}</span> : null}
