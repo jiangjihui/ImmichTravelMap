@@ -20,10 +20,8 @@ function parseDate(value: string | undefined, fallback: Date): Date {
   return Number.isNaN(parsed.getTime()) ? fallback : parsed;
 }
 
-function toAssetViewUrl(assetId: string): string | undefined {
-  const fallbackTemplate = `${config.IMMICH_BASE_URL.replace(/\/+$/, "")}/photos/{assetId}`;
-  const template = config.IMMICH_WEB_ASSET_URL_TEMPLATE?.trim() || fallbackTemplate;
-  return template.split("{assetId}").join(assetId);
+function toAssetViewUrl(assetId: string): string {
+  return `${config.IMMICH_BASE_URL.replace(/\/+$/, "")}/photos/${assetId}`;
 }
 
 router.get("/points", async (req, res) => {

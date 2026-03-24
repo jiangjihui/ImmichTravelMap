@@ -22,7 +22,6 @@ type RuntimeSettings = {
   proxyApiBase: string;
   directImmichBaseUrl: string;
   directImmichApiKey: string;
-  directAssetUrlTemplate: string;
 };
 
 function isMobileShellRuntime(): boolean {
@@ -202,7 +201,6 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
       proxyApiBase: defaults.proxyApiBase,
       directImmichBaseUrl: defaults.directImmichBaseUrl,
       directImmichApiKey: defaults.directImmichApiKey,
-      directAssetUrlTemplate: defaults.directAssetUrlTemplate
     };
   }
 
@@ -215,7 +213,6 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
         proxyApiBase: defaults.proxyApiBase,
         directImmichBaseUrl: defaults.directImmichBaseUrl,
         directImmichApiKey: defaults.directImmichApiKey,
-        directAssetUrlTemplate: defaults.directAssetUrlTemplate
       };
     }
 
@@ -238,10 +235,6 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
         typeof parsed.directImmichBaseUrl === "string" ? parsed.directImmichBaseUrl : defaults.directImmichBaseUrl,
       directImmichApiKey:
         typeof parsed.directImmichApiKey === "string" ? parsed.directImmichApiKey : defaults.directImmichApiKey,
-      directAssetUrlTemplate:
-        typeof parsed.directAssetUrlTemplate === "string"
-          ? parsed.directAssetUrlTemplate
-          : defaults.directAssetUrlTemplate
     };
   } catch {
     return {
@@ -250,7 +243,6 @@ function loadRuntimeSettings(defaults: ReturnType<typeof getDefaultClientSetting
       proxyApiBase: defaults.proxyApiBase,
       directImmichBaseUrl: defaults.directImmichBaseUrl,
       directImmichApiKey: defaults.directImmichApiKey,
-      directAssetUrlTemplate: defaults.directAssetUrlTemplate
     };
   }
 }
@@ -267,7 +259,6 @@ export default function App() {
   const [proxyApiBaseInput, setProxyApiBaseInput] = useState(initialSettings.proxyApiBase);
   const [directImmichBaseUrlInput, setDirectImmichBaseUrlInput] = useState(initialSettings.directImmichBaseUrl);
   const [directImmichApiKeyInput, setDirectImmichApiKeyInput] = useState(initialSettings.directImmichApiKey);
-  const [directAssetUrlTemplateInput, setDirectAssetUrlTemplateInput] = useState(initialSettings.directAssetUrlTemplate);
   const [loading, setLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState<{ current: number; total: number } | null>(null);
   const [showProxyRetry, setShowProxyRetry] = useState(false);
@@ -295,9 +286,8 @@ export default function App() {
         proxyApiBase: proxyApiBaseInput,
         directImmichBaseUrl: directImmichBaseUrlInput,
         directImmichApiKey: directImmichApiKeyInput,
-        directAssetUrlTemplate: directAssetUrlTemplateInput
       }),
-    [mode, proxyApiBaseInput, directAssetUrlTemplateInput, directImmichApiKeyInput, directImmichBaseUrlInput]
+    [mode, proxyApiBaseInput, directImmichApiKeyInput, directImmichBaseUrlInput]
   );
 
   const minTime = points.length > 0 ? new Date(points[0].timestamp).getTime() : 0;
@@ -310,10 +300,9 @@ export default function App() {
       proxyApiBase: proxyApiBaseInput,
       directImmichBaseUrl: directImmichBaseUrlInput,
       directImmichApiKey: directImmichApiKeyInput,
-      directAssetUrlTemplate: directAssetUrlTemplateInput
     };
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
-  }, [mode, queryMode, proxyApiBaseInput, directAssetUrlTemplateInput, directImmichApiKeyInput, directImmichBaseUrlInput]);
+  }, [mode, queryMode, proxyApiBaseInput, directImmichApiKeyInput, directImmichBaseUrlInput]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -392,7 +381,6 @@ export default function App() {
         proxyApiBase: proxyApiBaseInput,
         directImmichBaseUrl: directImmichBaseUrlInput,
         directImmichApiKey: directImmichApiKeyInput,
-        directAssetUrlTemplate: directAssetUrlTemplateInput
       });
 
     const fetchTravelPointsWithStrategy = async (
@@ -794,16 +782,6 @@ export default function App() {
                     onChange={(event) => setDirectImmichApiKeyInput(event.target.value)}
                     placeholder="输入 Immich API Key"
                     title="Immich API Key（仅保存在当前浏览器）"
-                  />
-                </label>
-                <label title="可选：Immich 页面跳转模板，支持 {assetId}">
-                  跳转模板
-                  <input
-                    type="text"
-                    value={directAssetUrlTemplateInput}
-                    onChange={(event) => setDirectAssetUrlTemplateInput(event.target.value)}
-                    placeholder="可选，如 https://immich/photos/{assetId}"
-                    title="可选：Immich 页面跳转模板，支持 {assetId}"
                   />
                 </label>
               </>

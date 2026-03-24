@@ -12,7 +12,6 @@ export type TravelClientConfig = {
   proxyApiBase?: string;
   directImmichBaseUrl?: string;
   directImmichApiKey?: string;
-  directAssetUrlTemplate?: string;
 };
 
 export type TravelClient = {
@@ -50,7 +49,6 @@ function resolveProxyApiBase(candidate?: string): string {
 const defaultProxyApiBase = resolveProxyApiBase(import.meta.env.VITE_API_BASE);
 const defaultDirectImmichBaseUrl = (import.meta.env.VITE_DIRECT_IMMICH_BASE_URL ?? "").trim();
 const defaultDirectImmichApiKey = (import.meta.env.VITE_DIRECT_IMMICH_API_KEY ?? "").trim();
-const defaultAssetUrlTemplate = (import.meta.env.VITE_IMMICH_WEB_ASSET_URL_TEMPLATE ?? "").trim();
 
 function isCapacitorRuntime(): boolean {
   if (typeof window === "undefined") {
@@ -105,10 +103,8 @@ function buildProxyUrl(base: string, path: string): string {
   return trimmed ? `${trimTrailingSlash(trimmed)}${path}` : path;
 }
 
-function buildImmichAssetUrl(assetId: string, baseUrl: string, template?: string): string {
-  const fallback = `${trimTrailingSlash(baseUrl)}/photos/{assetId}`;
-  const resolvedTemplate = template?.trim() ? template.trim() : fallback;
-  return resolvedTemplate.split("{assetId}").join(assetId);
+function buildImmichAssetUrl(assetId: string, baseUrl: string): string {
+  return `${trimTrailingSlash(baseUrl)}/photos/${assetId}`;
 }
 
 async function fetchProxyTravelPoints(apiBase: string, startIso: string, endIso: string): Promise<TravelResponse> {
@@ -188,8 +184,7 @@ async function fetchDirectTravelPoints(
   immichBaseUrl: string,
   immichApiKey: string,
   startIso: string,
-  endIso: string,
-  assetUrlTemplate?: string
+  endIso: string
 ): Promise<TravelResponse> {
   let page = "1";
   let pageCount = 0;
@@ -257,7 +252,7 @@ async function fetchDirectTravelPoints(
     points: simplified.map((point) => ({
       ...point,
       thumbnailPath: "",
-      assetViewUrl: buildImmichAssetUrl(point.assetId, immichBaseUrl, assetUrlTemplate)
+      assetViewUrl: buildImmichAssetUrl(point.assetId, immichBaseUrl)
     }))
   };
 }
@@ -267,7 +262,6 @@ export function getDefaultClientSettings() {
     proxyApiBase: defaultProxyApiBase,
     directImmichBaseUrl: defaultDirectImmichBaseUrl,
     directImmichApiKey: defaultDirectImmichApiKey,
-    directAssetUrlTemplate: defaultAssetUrlTemplate
   };
 }
 
@@ -285,7 +279,6 @@ export function createTravelClient(config: TravelClientConfig): TravelClient {
 
   const directImmichBaseUrl = (config.directImmichBaseUrl ?? defaultDirectImmichBaseUrl).trim();
   const directImmichApiKey = (config.directImmichApiKey ?? defaultDirectImmichApiKey).trim();
-  const directAssetUrlTemplate = (config.directAssetUrlTemplate ?? defaultAssetUrlTemplate).trim();
   const missingDirectConfig =
     !directImmichBaseUrl || !directImmichApiKey
       ? "直连模式需要填写 Immich 地址和 API Key。"
@@ -306,13 +299,7 @@ export function createTravelClient(config: TravelClientConfig): TravelClient {
       if (missingDirectConfig !== null) {
         throw new Error(missingDirectConfig);
       }
-      return fetchDirectTravelPoints(
-        directImmichBaseUrl,
-        directImmichApiKey,
-        startIso,
-        endIso,
-        directAssetUrlTemplate
-      );
+      return fetchDirectTravelPoints(directImmichBaseUrl, directImmichApiKey, startIso, endIso);
     }
   };
 }

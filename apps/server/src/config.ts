@@ -16,7 +16,6 @@ const schema = z.object({
   WEB_ORIGIN: z
     .string()
     .default("http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost"),
-  IMMICH_WEB_ASSET_URL_TEMPLATE: z.string().optional()
 });
 
 const parsed = schema.safeParse(process.env);

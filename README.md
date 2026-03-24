@@ -1,4 +1,4 @@
-# ImmichTravelMap
+﻿# ImmichTravelMap
 
 基于 Immich API 的旅行轨迹回放应用。  
 支持按时间范围拉取照片地理信息，在地图上播放轨迹，并可点击轨迹点查看缩略图和跳转 Immich 照片页。
@@ -48,14 +48,8 @@ PORT=8787
 WEB_ORIGIN=http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost
 ```
 
-可选（Immich 页面跳转模板）：
-
-```env
-IMMICH_WEB_ASSET_URL_TEMPLATE=https://your-immich-domain/photos/{assetId}
-```
-
 说明：
-- 不配置时默认使用 `${IMMICH_BASE_URL}/photos/{assetId}`。
+- 轨迹点跳转链接默认使用 `${IMMICH_BASE_URL}/photos/{assetId}`。
 - `{assetId}` 会自动替换为实际资产 ID。
 
 ### 前端（可选）
@@ -66,14 +60,13 @@ IMMICH_WEB_ASSET_URL_TEMPLATE=https://your-immich-domain/photos/{assetId}
 VITE_API_BASE=http://localhost:8787
 VITE_DIRECT_IMMICH_BASE_URL=
 VITE_DIRECT_IMMICH_API_KEY=
-VITE_IMMICH_WEB_ASSET_URL_TEMPLATE=
 ```
 
 说明：
 - `VITE_API_BASE`：代理模式 API 地址，留空则同源 `/api`
 - `VITE_DIRECT_IMMICH_BASE_URL`：直连模式默认 Immich 地址
 - `VITE_DIRECT_IMMICH_API_KEY`：直连模式默认 API Key（仅建议本地受控环境）
-- `VITE_IMMICH_WEB_ASSET_URL_TEMPLATE`：直连模式照片跳转模板，支持 `{assetId}`
+- 直连模式轨迹点跳转链接默认使用 `${VITE_DIRECT_IMMICH_BASE_URL}/photos/{assetId}`。
 
 ## 启动方式
 
@@ -260,3 +253,4 @@ cd apps/mobile/android
 
 - `npm run release:build` 只会构建并检查 Web/Server 产物，不会生成 APK。
 - 需要上架或分发时，请在 Android 工程中配置 keystore 后再签名 Release 包。
+
